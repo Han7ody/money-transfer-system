@@ -95,6 +95,8 @@ export const getAllCurrencies = async (req: AuthRequest, res: Response) => {
 
 // Approve transaction
 export const approveTransaction = async (req: AuthRequest, res: Response) => {
+  console.log('approveTransaction request params:', req.params);
+  console.log('approveTransaction request body:', req.body);
   try {
     const { id } = req.params;
     const { paymentMethod, paymentReference, adminNotes } = req.body;
@@ -178,6 +180,8 @@ export const approveTransaction = async (req: AuthRequest, res: Response) => {
 
 // Reject transaction
 export const rejectTransaction = async (req: AuthRequest, res: Response) => {
+  console.log('rejectTransaction request params:', req.params);
+  console.log('rejectTransaction request body:', req.body);
   try {
     const { id } = req.params;
     const { rejectionReason, adminNotes } = req.body;
@@ -415,18 +419,16 @@ export const updateExchangeRate = async (req: AuthRequest, res: Response) => {
         }
       },
       update: {
-        // 🟢 التصحيح النهائي لـ 500 Error: استخدام Prisma.Decimal
         rate: new Prisma.Decimal(rate),
         adminFeePercent: new Prisma.Decimal(adminFeePercent),
-        updater: { connect: { id: req.user!.id } }
+        updatedBy: req.user!.id
       },
       create: {
         fromCurrencyId: fromCurrency.id,
         toCurrencyId: toCurrency.id,
-        // 🟢 التصحيح النهائي لـ 500 Error: استخدام Prisma.Decimal
         rate: new Prisma.Decimal(rate),
         adminFeePercent: new Prisma.Decimal(adminFeePercent),
-        updater: { connect: { id: req.user!.id } }
+        updatedBy: req.user!.id
       }
     });
 

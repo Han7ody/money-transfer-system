@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { BarChart3, Users, Clock, CheckCircle, XCircle } from 'lucide-react';
+import Link from 'next/link';
 // تم تضمين transactionAPI هنا لأنها تحتوي على دالة جلب العملات (getCurrencies)
 import { adminAPI, authAPI, transactionAPI } from '@/lib/api'; 
 
@@ -79,14 +80,31 @@ export default function AdminDashboardPage() {
   // 🛑 الدالة الجديدة: معالجة تحديث سعر الصرف
   const handleRateUpdate = async (e: React.FormEvent) => {
       e.preventDefault();
+      
+      // Basic validation
+      if (!rateForm.rate || !rateForm.fee) {
+          alert('الرجاء إدخال سعر الصرف والعمولة.');
+          return;
+      }
+
       setRateLoading(true);
 
       try {
+          const rate = parseFloat(rateForm.rate);
+          const fee = parseFloat(rateForm.fee);
+
+          // Check for NaN after parsing
+          if (isNaN(rate) || isNaN(fee)) {
+              alert('الرجاء إدخال قيم رقمية صالحة.');
+              setRateLoading(false); // Stop loading
+              return;
+          }
+
           const response = await adminAPI.updateExchangeRate({
               fromCurrencyCode: rateForm.fromCode,
               toCurrencyCode: rateForm.toCode,
-              rate: parseFloat(rateForm.rate),
-              adminFeePercent: parseFloat(rateForm.fee)
+              rate: rate,
+              adminFeePercent: fee
           });
 
           if (response.success) {
@@ -104,24 +122,74 @@ export default function AdminDashboardPage() {
       }
   };
 
-  const viewTransaction = async (id: number) => {
-    try {
-      // استخدام getById لجلب سجل واحد
-      const response = await transactionAPI.getById(id); 
-      const tx = response.data;
+      const viewTransaction = async (id: number) => {
+        try {
+          // استخدام getById لجلب سجل واحد
+          const response = await transactionAPI.getById(id);
+          const tx = response.data;
+    
+          if (tx) {
+            setSelectedTx(tx);
+            setShowModal(true);
+          }
+        } catch (error) {
+          alert('فشل تحميل التفاصيل');
+        }
+      };
       
-      if (tx) {
-        setSelectedTx(tx);
-        setShowModal(true);
-      }
-    } catch (error) {
-      alert('فشل تحميل التفاصيل');
-    }
-  };
-
-  const handleApprove = async () => { /* ... الكود كما هو ... */ };
-  const handleReject = async () => { /* ... الكود كما هو ... */ };
-  const handleComplete = async () => { /* ... الكود كما هو ... */ };
+      const handleApprove = async () => {
+        if (!selectedTx) return;
+        try {
+          // 🛑 استدعاء API للموافقة
+          const response = await adminAPI.approveTransaction(selectedTx.id, {});
+          if (response.success) {
+            alert('تمت الموافقة على المعاملة بنجاح.');
+            setShowModal(false);
+            loadDashboard(); // تحديث البيانات
+          } else {
+            alert(response.message || 'فشلت الموافقة.');
+          }
+        } catch (error) {
+          alert('حدث خطأ. حاول مرة أخرى.');
+        }
+      };
+    
+      const handleReject = async () => {
+        if (!selectedTx) return;
+        const reason = prompt('الرجاء إدخال سبب الرفض:');
+        if (reason) {
+          try {
+            // 🛑 استدعاء API للرفض
+            const response = await adminAPI.rejectTransaction(selectedTx.id, { rejectionReason: reason });
+            if (response.success) {
+              alert('تم رفض المعاملة.');
+              setShowModal(false);
+              loadDashboard();
+            } else {
+              alert(response.message || 'فشل الرفض.');
+            }
+          } catch (error) {
+            alert('حدث خطأ. حاول مرة أخرى.');
+          }
+        }
+      };
+    
+      const handleComplete = async () => {
+        if (!selectedTx) return;
+        try {
+          // 🛑 استدعاء API للإكمال
+          const response = await adminAPI.completeTransaction(selectedTx.id, {});
+          if (response.success) {
+            alert('تم تعليم المعاملة كمكتملة.');
+            setShowModal(false);
+            loadDashboard();
+          } else {
+            alert(response.message || 'فشل الإكمال.');
+          }
+        } catch (error) {
+          alert('حدث خطأ. حاول مرة أخرى.');
+        }
+      };
   const getStatusBadge = (status: string) => { /* ... الكود كما هو ... */ };
 
 
@@ -142,7 +210,17 @@ export default function AdminDashboardPage() {
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <h1 className="text-xl font-bold text-indigo-600">لوحة تحكم الإدارة</h1>
+            <div className="flex items-center gap-8">
+              <h1 className="text-xl font-bold text-indigo-600">لوحة تحكم الإدارة</h1>
+              <nav className="flex gap-4">
+                <Link href="/admin" className="text-sm font-medium text-gray-700 hover:text-indigo-600">
+                  Dashboard
+                </Link>
+                <Link href="/admin/users" className="text-sm font-medium text-gray-700 hover:text-indigo-600">
+                  Users
+                </Link>
+              </nav>
+            </div>
             <button
               onClick={() => {
                 authAPI.logout();
