@@ -1,519 +1,405 @@
-// frontend/src/app/(admin)/admin/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { BarChart3, Users, Clock, CheckCircle, XCircle } from 'lucide-react';
-import Link from 'next/link';
-// تم تضمين transactionAPI هنا لأنها تحتوي على دالة جلب العملات (getCurrencies)
-import { adminAPI, authAPI, transactionAPI } from '@/lib/api'; 
+import { 
+  LayoutDashboard, Users, DollarSign, Activity, Clock, 
+  CheckCircle2, XCircle, AlertCircle, Search, 
+  Download, Settings, Bell, LogOut, Menu, X as CloseIcon,
+  Eye, Check, Ban, FileText, ArrowUpDown
+} from 'lucide-react';
+import { adminAPI, authAPI } from '@/lib/api';
 
-export default function AdminDashboardPage() {
+// Helper to format currency
+const formatCurrency = (amount, currency = 'SDG') => {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 0 }).format(amount);
+};
+
+const AdminDashboardPage = () => {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<any>(null);
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [filter, setFilter] = useState('');
-  const [selectedTx, setSelectedTx] = useState<any>(null);
+  const [showSidebar, setShowSidebar] = useState(true);
+  
+  // Data states
+  const [stats, setStats] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [loadingTxs, setLoadingTxs] = useState(true);
+  const [error, setError] = useState('');
+
+  // Modal states
+  const [selectedTx, setSelectedTx] = useState(null);
   const [showModal, setShowModal] = useState(false);
 
-  // 🛑 حالة نموذج تعديل أسعار الصرف (جديد)
-  const [rateForm, setRateForm] = useState({
-    fromCode: 'SDG',
-    toCode: 'INR',
-    rate: '',
-    fee: ''
-  });
-  const [rateLoading, setRateLoading] = useState(false);
-  const [currencies, setCurrencies] = useState<any[]>([]); // لتخزين العملات
+  // Filtering and Pagination states
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
-  useEffect(() => {
-    checkAdminAccess();
-    loadDashboard();
+  const fetchDashboardStats = useCallback(async () => {
+    try {
+      setLoadingStats(true);
+      const response = await adminAPI.getDashboardStats();
+      if (response.success) {
+        setStats(response.data);
+      }
+    } catch (err) {
+      setError('فشل تحميل الإحصائيات.');
+    } finally {
+      setLoadingStats(false);
+    }
   }, []);
 
-  const checkAdminAccess = async () => {
+  const fetchTransactions = useCallback(async () => {
     try {
-      const response = await authAPI.getCurrentUser();
-      if (!response.success || response.data.role !== 'ADMIN') {
-        alert('غير مصرح لك بالدخول');
-        router.push('/dashboard');
-      }
-    } catch (error) {
-      router.push('/login');
-    }
-  };
-
-  const loadDashboard = async () => {
-    try {
-      // 🛑 طلب جلب العملات مضاف إلى Promise.all
-      const [statsRes, txRes, currenciesRes] = await Promise.all([
-        adminAPI.getDashboardStats(),
-        adminAPI.getAllTransactions(),
-        transactionAPI.getCurrencies() // نفترض وجود هذه الدالة في transactionAPI
-      ]);
-
-      if (statsRes.success) setStats(statsRes.data);
-      if (txRes.success) setTransactions(txRes.data.transactions);
-      if (currenciesRes.success) setCurrencies(currenciesRes.data); // حفظ العملات المتاحة
-
-    } catch (error) {
-      console.error('Error loading dashboard:', error); 
-    } finally {
-      setLoading(false); 
-    }
-  };
-
-  const loadTransactions = async (status?: string) => {
-    try {
-      const params = status ? { status } : {};
+      setLoadingTxs(true);
+      const params = {
+        page,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        search: searchTerm || undefined,
+      };
       const response = await adminAPI.getAllTransactions(params);
       if (response.success) {
         setTransactions(response.data.transactions);
+        setTotalPages(response.data.totalPages);
       }
-    } catch (error) {
-      console.error('Error loading transactions:', error);
+    } catch (err) {
+      setError('فشل تحميل المعاملات.');
+    } finally {
+      setLoadingTxs(false);
+    }
+  }, [page, statusFilter, searchTerm]);
+
+  useEffect(() => {
+    fetchDashboardStats();
+  }, [fetchDashboardStats]);
+
+  useEffect(() => {
+    const debounce = setTimeout(() => {
+        fetchTransactions();
+    }, 300); // Debounce search input
+    return () => clearTimeout(debounce);
+  }, [fetchTransactions]);
+
+  const handleAction = async (action, txId, data = {}) => {
+    try {
+      let response;
+      switch (action) {
+        case 'approve':
+          response = await adminAPI.approveTransaction(txId, data);
+          break;
+        case 'reject':
+          response = await adminAPI.rejectTransaction(txId, data);
+          break;
+        case 'complete':
+          response = await adminAPI.completeTransaction(txId, data);
+          break;
+        default:
+          return;
+      }
+      if (response.success) {
+        // Refresh data
+        fetchTransactions();
+        fetchDashboardStats();
+        if(showModal) setShowModal(false);
+      } else {
+        alert(`فشل الإجراء: ${response.message}`);
+      }
+    } catch (err) {
+      alert('حدث خطأ أثناء تنفيذ الإجراء.');
     }
   };
 
-
-  // 🛑 الدالة الجديدة: معالجة تحديث سعر الصرف
-  const handleRateUpdate = async (e: React.FormEvent) => {
-      e.preventDefault();
-      
-      // Basic validation
-      if (!rateForm.rate || !rateForm.fee) {
-          alert('الرجاء إدخال سعر الصرف والعمولة.');
-          return;
-      }
-
-      setRateLoading(true);
-
-      try {
-          const rate = parseFloat(rateForm.rate);
-          const fee = parseFloat(rateForm.fee);
-
-          // Check for NaN after parsing
-          if (isNaN(rate) || isNaN(fee)) {
-              alert('الرجاء إدخال قيم رقمية صالحة.');
-              setRateLoading(false); // Stop loading
-              return;
-          }
-
-          const response = await adminAPI.updateExchangeRate({
-              fromCurrencyCode: rateForm.fromCode,
-              toCurrencyCode: rateForm.toCode,
-              rate: rate,
-              adminFeePercent: fee
-          });
-
-          if (response.success) {
-              alert('تم تحديث سعر الصرف بنجاح!');
-              // إعادة تعيين النموذج بعد النجاح
-              setRateForm({ fromCode: 'SDG', toCode: 'INR', rate: '', fee: '' }); 
-              // loadDashboard(); // يمكن إعادة تحميل البيانات
-          } else {
-              alert(response.message || 'فشل التحديث.');
-          }
-      } catch (error) {
-          alert('حدث خطأ أثناء تحديث سعر الصرف. تأكد من أن الخادم يعمل.');
-      } finally {
-          setRateLoading(false);
-      }
+  const handleApprove = (txId) => {
+    if (window.confirm('هل أنت متأكد من الموافقة على هذه المعاملة؟')) {
+      handleAction('approve', txId);
+    }
   };
 
-      const viewTransaction = async (id: number) => {
-        try {
-          // استخدام getById لجلب سجل واحد
-          const response = await transactionAPI.getById(id);
-          const tx = response.data;
-    
-          if (tx) {
-            setSelectedTx(tx);
-            setShowModal(true);
-          }
-        } catch (error) {
-          alert('فشل تحميل التفاصيل');
-        }
-      };
-      
-      const handleApprove = async () => {
-        if (!selectedTx) return;
-        try {
-          // 🛑 استدعاء API للموافقة
-          const response = await adminAPI.approveTransaction(selectedTx.id, {});
-          if (response.success) {
-            alert('تمت الموافقة على المعاملة بنجاح.');
-            setShowModal(false);
-            loadDashboard(); // تحديث البيانات
-          } else {
-            alert(response.message || 'فشلت الموافقة.');
-          }
-        } catch (error) {
-          alert('حدث خطأ. حاول مرة أخرى.');
-        }
-      };
-    
-      const handleReject = async () => {
-        if (!selectedTx) return;
-        const reason = prompt('الرجاء إدخال سبب الرفض:');
-        if (reason) {
-          try {
-            // 🛑 استدعاء API للرفض
-            const response = await adminAPI.rejectTransaction(selectedTx.id, { rejectionReason: reason });
-            if (response.success) {
-              alert('تم رفض المعاملة.');
-              setShowModal(false);
-              loadDashboard();
-            } else {
-              alert(response.message || 'فشل الرفض.');
-            }
-          } catch (error) {
-            alert('حدث خطأ. حاول مرة أخرى.');
-          }
-        }
-      };
-    
-      const handleComplete = async () => {
-        if (!selectedTx) return;
-        try {
-          // 🛑 استدعاء API للإكمال
-          const response = await adminAPI.completeTransaction(selectedTx.id, {});
-          if (response.success) {
-            alert('تم تعليم المعاملة كمكتملة.');
-            setShowModal(false);
-            loadDashboard();
-          } else {
-            alert(response.message || 'فشل الإكمال.');
-          }
-        } catch (error) {
-          alert('حدث خطأ. حاول مرة أخرى.');
-        }
-      };
-  const getStatusBadge = (status: string) => { /* ... الكود كما هو ... */ };
+  const handleReject = (txId) => {
+    const reason = prompt('الرجاء إدخال سبب الرفض:');
+    if (reason) {
+      handleAction('reject', txId, { rejectionReason: reason });
+    }
+  };
+  
+  const handleComplete = (txId) => {
+    if (window.confirm('هل أنت متأكد من إتمام هذه المعاملة؟')) {
+      handleAction('complete', txId);
+    }
+  };
 
+  const handleLogout = () => {
+    authAPI.logout();
+    router.push('/login');
+  };
 
-  if (loading) {
+  const getStatusConfig = (status) => {
+    const configs = {
+      'UNDER_REVIEW': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: Clock, label: 'قيد المراجعة' },
+      'APPROVED': { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200', icon: CheckCircle2, label: 'موافق عليها' },
+      'COMPLETED': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: CheckCircle2, label: 'مكتملة' },
+      'REJECTED': { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', icon: XCircle, label: 'مرفوضة' },
+      'PENDING': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: AlertCircle, label: 'قيد الانتظار' }
+    };
+    return configs[status] || configs['PENDING'];
+  };
+
+  const StatCard = ({ title, value, icon, color, unit, subtext }) => {
+    const Icon = icon;
+    const colorClasses = {
+        indigo: 'from-indigo-500 to-indigo-600 shadow-indigo-200',
+        amber: 'from-amber-500 to-amber-600 shadow-amber-200',
+        emerald: 'from-emerald-500 to-emerald-600 shadow-emerald-200',
+        violet: 'from-violet-500 to-violet-600 shadow-violet-200',
+    };
+
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">جاري التحميل...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-8">
-              <h1 className="text-xl font-bold text-indigo-600">لوحة تحكم الإدارة</h1>
-              <nav className="flex gap-4">
-                <Link href="/admin" className="text-sm font-medium text-gray-700 hover:text-indigo-600">
-                  Dashboard
-                </Link>
-                <Link href="/admin/users" className="text-sm font-medium text-gray-700 hover:text-indigo-600">
-                  Users
-                </Link>
-              </nav>
+        <div className={`bg-gradient-to-br ${colorClasses[color] || colorClasses.indigo} rounded-2xl p-6 text-white shadow-lg`}>
+            <div className="flex items-start justify-between mb-4">
+                <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                    <Icon className="w-6 h-6" />
+                </div>
             </div>
-            <button
-              onClick={() => {
-                authAPI.logout();
-              }}
-              className="text-red-600 hover:text-red-700 font-medium"
-            >
-              تسجيل الخروج
+            <div>
+                <p className="text-white/80 text-sm mb-2">{title}</p>
+                <p className="text-4xl font-bold">{value} {unit}</p>
+                {subtext && <p className="text-sm text-white/80 mt-2">{subtext}</p>}
+            </div>
+        </div>
+    );
+  };
+
+  // Main component render
+  return (
+    <div className="min-h-screen bg-slate-50" dir="rtl">
+      {/* Sidebar */}
+      <aside className={`fixed right-0 top-0 h-full bg-white border-l border-slate-200 transition-all duration-300 z-40 ${showSidebar ? 'w-72' : 'w-0'} overflow-hidden`}>
+        <div className="p-6">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg">
+              <DollarSign className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900 text-lg">لوحة تحكم راصد</h2>
+              <p className="text-xs text-slate-500">نظام راصد</p>
+            </div>
+          </div>
+          <nav className="space-y-2">
+            <button className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 text-indigo-700 rounded-xl font-semibold">
+              <LayoutDashboard className="w-5 h-5" />
+              <span>لوحة التحكم</span>
+            </button>
+            {/* Add navigation to other pages later */}
+          </nav>
+          <div className="absolute bottom-6 left-6 right-6">
+            <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-rose-600 hover:bg-rose-50 rounded-xl font-semibold transition-all">
+              <LogOut className="w-5 h-5" />
+              <span>تسجيل الخروج</span>
             </button>
           </div>
         </div>
-      </div>
+      </aside>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
+      {/* Main Content */}
+      <main className={`transition-all duration-300 ${showSidebar ? 'mr-72' : 'mr-0'}`}>
+        {/* Top Bar */}
+        <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
+          <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <BarChart3 className="w-6 h-6 text-blue-600" />
-              </div>
+              <button onClick={() => setShowSidebar(!showSidebar)} className="w-10 h-10 rounded-lg hover:bg-slate-100 flex items-center justify-center">
+                <Menu className="w-5 h-5 text-slate-600" />
+              </button>
               <div>
-                <p className="text-sm text-gray-600">إجمالي المعاملات</p>
-                <p className="text-2xl font-bold text-gray-900">{stats?.totalTransactions || 0}</p>
+                <h1 className="text-xl font-bold text-slate-900">مرحباً، المدير</h1>
+                <p className="text-sm text-slate-500">إليك ملخص اليوم</p>
               </div>
             </div>
           </div>
+        </header>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <Clock className="w-6 h-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">قيد المراجعة</p>
-                <p className="text-2xl font-bold text-yellow-600">{stats?.underReviewCount || 0}</p>
-              </div>
+        <div className="p-6 space-y-6">
+          {/* Stats Grid */}
+          {loadingStats ? <p>جاري تحميل الإحصائيات...</p> : stats &&
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard title="إجمالي المعاملات" value={stats.totalTransactions} icon={Activity} color="indigo" subtext={`المبلغ: ${formatCurrency(stats.totalAmount)}`} />
+              <StatCard title="قيد المراجعة" value={stats.underReviewCount} icon={Clock} color="amber" subtext="يحتاج لمراجعة فورية" />
+              <StatCard title="معاملات مكتملة" value={stats.completedCount} icon={CheckCircle2} color="emerald" />
+              <StatCard title="إجمالي المستخدمين" value={stats.totalUsers} icon={Users} color="violet" subtext={`${stats.activeUsers} نشط`} />
             </div>
-          </div>
+          }
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <p className className="text-sm text-gray-600">مكتملة</p>
-                <p className="text-2xl font-bold text-green-600">{stats?.completedCount || 0}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Users className="w-6 h-6 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">المستخدمين</p>
-                <p className="text-2xl font-bold text-purple-600">{stats?.totalUsers || 0}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 🛑 نموذج تعديل أسعار الصرف (النموذج الجديد) */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-            <h3 className="text-xl font-semibold text-gray-900 mb-4">تعديل أسعار الصرف</h3>
-            <form onSubmit={handleRateUpdate} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                
-                {/* من عملة */}
+          {/* Filters & Actions */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">من</label>
-                    <select name="fromCode" value={rateForm.fromCode} onChange={(e) => setRateForm({...rateForm, fromCode: e.target.value})} className="w-full px-3 py-2 border rounded-lg">
-                        {/* استخدام العملات المجوبة من الـ API */}
-                        {currencies.map(c => <option key={c.code} value={c.code}>{c.code} - {c.name}</option>)}
+                    <h3 className="text-xl font-bold text-slate-900 mb-1">المعاملات الأخيرة</h3>
+                    <p className="text-sm text-slate-600">مراجعة وإدارة المعاملات</p>
+                </div>
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                    <div className="relative flex-1 md:flex-none">
+                        <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                        <input 
+                            type="text"
+                            placeholder="البحث..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full md:w-64 pr-12 pl-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                    </div>
+                    <select 
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-slate-700 bg-white"
+                    >
+                        <option value="all">جميع الحالات</option>
+                        <option value="UNDER_REVIEW">قيد المراجعة</option>
+                        <option value="APPROVED">موافق عليها</option>
+                        <option value="COMPLETED">مكتملة</option>
+                        <option value="REJECTED">مرفوضة</option>
                     </select>
                 </div>
-
-                {/* إلى عملة */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">إلى</label>
-                    <select name="toCode" value={rateForm.toCode} onChange={(e) => setRateForm({...rateForm, toCode: e.target.value})} className="w-full px-3 py-2 border rounded-lg">
-                        {/* استخدام العملات المجوبة من الـ API */}
-                        {currencies.map(c => <option key={c.code} value={c.code}>{c.code} - {c.name}</option>)}
-                    </select>
-                </div>
-                
-                {/* سعر الصرف (Rate) */}
-                <div className="md:col-span-1">
-                    <label className="block text-sm font-medium text-gray-700">السعر (Rate)</label>
-                    <input type="number" name="rate" value={rateForm.rate} onChange={(e) => setRateForm({...rateForm, rate: e.target.value})} step="0.0001" placeholder="مثال: 0.025" required className="w-full px-3 py-2 border rounded-lg" />
-                </div>
-
-                {/* العمولة (Fee) */}
-                <div className="md:col-span-1">
-                    <label className="block text-sm font-medium text-gray-700">العمولة (%)</label>
-                    <input type="number" name="fee" value={rateForm.fee} onChange={(e) => setRateForm({...rateForm, fee: e.target.value})} step="0.01" placeholder="مثال: 2.00" required className="w-full px-3 py-2 border rounded-lg" />
-                </div>
-
-                {/* زر التحديث */}
-                <button type="submit" disabled={rateLoading} className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-semibold py-2 rounded-lg">
-                    {rateLoading ? 'جاري الحفظ...' : 'تحديث'}
-                </button>
-
-            </form>
-        </div>
-
-
-        {/* Filters */}
-        <div className="mb-6 flex gap-4">
-          <select
-            value={filter}
-            onChange={(e) => {
-              setFilter(e.target.value);
-              loadTransactions(e.target.value);
-            }}
-            className="px-4 py-2 border rounded-lg"
-          >
-            <option value="">جميع الحالات</option>
-            <option value="PENDING">قيد الانتظار</option>
-            <option value="UNDER_REVIEW">قيد المراجعة</option>
-            <option value="APPROVED">موافق عليها</option>
-            <option value="COMPLETED">مكتملة</option>
-            <option value="REJECTED">مرفوضة</option>
-          </select>
-        </div>
-
-        {/* Transactions Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b">
-            <h3 className="text-lg font-semibold text-gray-900">المعاملات</h3>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">المرجع</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">المرسل</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">المستلم</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">المبلغ</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">الحالة</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">التاريخ</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {transactions.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                      لا توجد معاملات
-                    </td>
-                  </tr>
-                ) : (
-                  transactions.map((tx) => (
-                    <tr key={tx.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-mono font-medium">{tx.transactionRef}</td>
-                      <td className="px-4 py-3 text-sm">
-                        <div>{tx.senderName}</div>
-                        <div className="text-xs text-gray-500">{tx.senderPhone}</div>
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <div>{tx.recipientName}</div>
-                        <div className="text-xs text-gray-500">{tx.recipientPhone}</div>
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <div className="font-medium">{tx.amountSent} {tx.fromCurrency.code}</div>
-                        <div className="text-xs text-gray-500">
-                          → {parseFloat(tx.amountReceived).toFixed(2)} {tx.toCurrency.code}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(tx.status)}`}>
-                          {tx.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {new Date(tx.createdAt).toLocaleDateString('ar-SA')}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => viewTransaction(tx.id)}
-                          className="text-indigo-600 hover:text-indigo-700 font-medium text-sm"
-                        >
-                          عرض
-                        </button>
-                      </td>
+          {/* Transactions Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              {loadingTxs ? <p className='p-6'>جاري تحميل المعاملات...</p> : 
+                <table className="w-full">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="px-6 py-4 text-right text-xs font-bold text-slate-600 uppercase">المعاملة</th>
+                      <th className="px-6 py-4 text-right text-xs font-bold text-slate-600 uppercase">المستخدم</th>
+                      <th className="px-6 py-4 text-right text-xs font-bold text-slate-600 uppercase">المبلغ</th>
+                      <th className="px-6 py-4 text-right text-xs font-bold text-slate-600 uppercase">الحالة</th>
+                      <th className="px-6 py-4 text-center text-xs font-bold text-slate-600 uppercase">الإجراءات</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* Modal */}
-      {showModal && selectedTx && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-screen overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-2xl font-bold">تفاصيل المعاملة</h3>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ✕
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {transactions.map((tx) => {
+                      const statusConfig = getStatusConfig(tx.status);
+                      const StatusIcon = statusConfig.icon;
+                      return (
+                        <tr key={tx.id} className="hover:bg-slate-50">
+                          <td className="px-6 py-4">
+                            <p className="font-mono text-sm font-bold text-indigo-600">{tx.transactionRef}</p>
+                            <p className="text-xs text-slate-500">{new Date(tx.createdAt).toLocaleString('ar-EG')}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="font-semibold text-slate-900 text-sm">{tx.user.fullName}</p>
+                            <p className="text-xs text-slate-500">{tx.user.phone}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="font-bold text-slate-900">{formatCurrency(tx.amountSent, tx.fromCurrency.code)}</p>
+                            <p className="text-sm text-emerald-600 font-semibold">→ {formatCurrency(tx.amountReceived, tx.toCurrency.code)}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border-2 ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}>
+                              <StatusIcon className="w-4 h-4" />
+                              {statusConfig.label}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-center gap-2">
+                              <button onClick={() => { setSelectedTx(tx); setShowModal(true); }} className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center">
+                                <Eye className="w-4 h-4 text-slate-600" />
+                              </button>
+                              {tx.status === 'UNDER_REVIEW' && (
+                                <>
+                                  <button onClick={() => handleApprove(tx.id)} className="w-9 h-9 rounded-lg bg-emerald-100 hover:bg-emerald-200 flex items-center justify-center">
+                                    <Check className="w-4 h-4 text-emerald-600" />
+                                  </button>
+                                  <button onClick={() => handleReject(tx.id)} className="w-9 h-9 rounded-lg bg-rose-100 hover:bg-rose-200 flex items-center justify-center">
+                                    <Ban className="w-4 h-4 text-rose-600" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              }
+            </div>
+            {/* Pagination */}
+            <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between">
+              <p className="text-sm text-slate-600">صفحة {page} من {totalPages}</p>
+              <div className="flex gap-2">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-4 py-2 border-2 border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                  السابق
                 </button>
-              </div>
-
-              <div className="space-y-6">
-                {/* Transaction Info */}
-                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="text-sm text-gray-600">المرجع</p>
-                    <p className="font-mono font-bold">{selectedTx.transactionRef}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">الحالة</p>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(selectedTx.status)}`}>
-                      {selectedTx.status}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">المبلغ المرسل</p>
-                    <p className="font-bold">{selectedTx.amountSent} {selectedTx.fromCurrency.code}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">المبلغ المستلم</p>
-                    <p className="font-bold text-green-600">
-                      {parseFloat(selectedTx.amountReceived).toFixed(2)} {selectedTx.toCurrency.code}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Sender & Recipient */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <h4 className="font-semibold mb-2">المرسل</h4>
-                    <p className="text-sm text-gray-600">{selectedTx.senderName}</p>
-                    <p className="text-sm text-gray-600">{selectedTx.senderPhone}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold mb-2">المستلم</h4>
-                    <p className="text-sm text-gray-600">{selectedTx.recipientName}</p>
-                    <p className="text-sm text-gray-600">{selectedTx.recipientPhone}</p>
-                  </div>
-                </div>
-
-                {/* Receipt */}
-                {selectedTx.receiptFilePath && (
-                  <div>
-                    <h4 className="font-semibold mb-2">إيصال الدفع</h4>
-                    <img
-                      src={`http://localhost:5000/${selectedTx.receiptFilePath}`}
-                      alt="Receipt"
-                      className="max-w-full h-64 object-contain border rounded-lg"
-                    />
-                  </div>
-                )}
-
-                {/* Actions */}
-                {selectedTx.status === 'UNDER_REVIEW' && (
-                  <div className="flex gap-4">
-                    <button
-                      onClick={handleApprove}
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg"
-                    >
-                      موافقة
-                    </button>
-                    <button
-                      onClick={handleReject}
-                      className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg"
-                    >
-                      رفض
-                    </button>
-                  </div>
-                )}
-
-                {selectedTx.status === 'APPROVED' && (
-                  <button
-                    onClick={handleComplete}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg"
-                  >
-                    تعليم كمكتمل
-                  </button>
-                )}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
+                  التالي
+                </button>
               </div>
             </div>
           </div>
+        </div>
+      </main>
+
+      {/* Transaction Detail Modal */}
+      {showModal && selectedTx && (
+         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setShowModal(false)}>
+            <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-5 flex justify-between items-center z-10 rounded-t-3xl">
+                    <div>
+                        <h3 className="text-2xl font-bold text-slate-900">تفاصيل المعاملة</h3>
+                        <p className="text-sm text-slate-600 mt-1">المرجع: {selectedTx.transactionRef}</p>
+                    </div>
+                    <button onClick={() => setShowModal(false)} className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center">
+                        <CloseIcon className="w-6 h-6 text-slate-600" />
+                    </button>
+                </div>
+
+                <div className="p-6 space-y-6">
+                    {/* User & Amount Details */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3">
+                            <h4 className="font-bold text-slate-900 flex items-center gap-2"><Users className="w-5 h-5 text-indigo-600" />المرسل</h4>
+                            <p className="text-sm"><span className="font-semibold">الاسم:</span> {selectedTx.user.fullName}</p>
+                            <p className="text-sm"><span className="font-semibold">الهاتف:</span> {selectedTx.user.phone}</p>
+                            <p className="text-sm"><span className="font-semibold">البريد:</span> {selectedTx.user.email}</p>
+                        </div>
+                        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3">
+                            <h4 className="font-bold text-slate-900 flex items-center gap-2"><Users className="w-5 h-5 text-emerald-600" />المستلم</h4>
+                            <p className="text-sm"><span className="font-semibold">الاسم:</span> {selectedTx.recipientName}</p>
+                            <p className="text-sm"><span className="font-semibold">الهاتف:</span> {selectedTx.recipientPhone}</p>
+                        </div>
+                    </div>
+
+                    {/* Receipt */}
+                    {selectedTx.receiptUrl &&
+                        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200">
+                            <h4 className="font-bold text-slate-900 mb-4 flex items-center gap-2"><FileText className="w-5 h-5 text-violet-600" />إيصال الدفع</h4>
+                            <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
+                                <a href={selectedTx.receiptUrl} target="_blank" rel="noopener noreferrer">
+                                    <img src={selectedTx.receiptUrl} alt="Receipt" className="max-h-96 w-auto mx-auto rounded-lg" />
+                                </a>
+                            </div>
+                        </div>
+                    }
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-4 pt-4 border-t border-slate-200">
+                    {selectedTx.status === 'UNDER_REVIEW' && (
+                        <>
+                            <button onClick={() => handleApprove(selectedTx.id)} className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white font-bold py-4 rounded-xl">موافقة</button>
+                            <button onClick={() => handleReject(selectedTx.id)} className="flex-1 bg-gradient-to-r from-rose-600 to-rose-700 text-white font-bold py-4 rounded-xl">رفض</button>
+                        </>
+                    )}
+                    {selectedTx.status === 'APPROVED' && (
+                        <button onClick={() => handleComplete(selectedTx.id)} className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold py-4 rounded-xl">تعليم كمكتمل</button>
+                    )}
+                    </div>
+                </div>
+            </div>
         </div>
       )}
     </div>
   );
-}
+};
+
+export default AdminDashboardPage;

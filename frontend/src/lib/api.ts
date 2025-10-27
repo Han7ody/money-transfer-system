@@ -49,6 +49,10 @@ export const authAPI = {
     country: string;
   }) => {
     const response = await api.post('/auth/register', data);
+    if (response.data.success) {
+      localStorage.setItem('token', response.data.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data.data.user));
+    }
     return response.data;
   },
 
@@ -70,7 +74,38 @@ export const authAPI = {
   getCurrentUser: async () => {
     const response = await api.get('/auth/me');
     return response.data;
-  }
+  },
+
+  changePassword: async (data: {
+    currentPassword: string;
+    newPassword: string;
+  }) => {
+    const response = await api.post('/auth/change-password', data);
+    return response.data;
+  },
+
+  sendVerificationOtp: async () => {
+    const response = await api.post('/auth/send-verification-otp');
+    return response.data;
+  },
+
+  verifyOtp: async (otp: string) => {
+    const response = await api.post('/auth/verify-otp', { otp });
+    return response.data;
+  },
+
+  forgotPassword: async (email: string) => {
+    const response = await api.post('/auth/forgot-password', { email });
+    return response.data;
+  },
+
+  resetPassword: async (data: {
+    token: string;
+    newPassword: string;
+  }) => {
+    const response = await api.post('/auth/reset-password', data);
+    return response.data;
+  },
 };
 
 // ==================== TRANSACTION API ====================
@@ -174,6 +209,29 @@ export const adminAPI = {
     const response = await api.post('/admin/exchange-rates', data);
     return response.data;
   }
+};
+
+// ==================== USER API ====================
+
+export const userAPI = {
+  updateCurrent: async (data: {
+    fullName: string;
+    phone: string;
+    country: string;
+  }) => {
+    const response = await api.put('/users/me', data);
+    return response.data;
+  },
+
+  updateNotificationSettings: async (data: {
+    notificationsOnEmail: boolean;
+    notificationsOnSms: boolean;
+    notificationsOnTransactionUpdate: boolean;
+    notificationsOnMarketing: boolean;
+  }) => {
+    const response = await api.put('/users/me/notification-settings', data);
+    return response.data;
+  },
 };
 
 // ==================== NOTIFICATION API ====================

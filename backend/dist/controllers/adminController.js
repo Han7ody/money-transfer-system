@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateExchangeRate = exports.getDashboardStats = exports.completeTransaction = exports.rejectTransaction = exports.approveTransaction = exports.getAllTransactions = void 0;
+exports.updateExchangeRate = exports.getDashboardStats = exports.completeTransaction = exports.rejectTransaction = exports.approveTransaction = exports.getAllCurrencies = exports.getAllTransactions = void 0;
+// تم استيراد Prisma أيضاً للاستخدام مع Decimal
 const client_1 = require("@prisma/client");
 const prisma = new client_1.PrismaClient();
 // Get all transactions for admin review
@@ -64,8 +65,31 @@ const getAllTransactions = async (req, res) => {
     }
 };
 exports.getAllTransactions = getAllTransactions;
+// 🟢 الدالة المضافة: جلب جميع العملات للمسؤول
+const getAllCurrencies = async (req, res) => {
+    try {
+        const currencies = await prisma.currency.findMany({
+            where: { isActive: true },
+            orderBy: { code: 'asc' }
+        });
+        res.json({
+            success: true,
+            data: currencies
+        });
+    }
+    catch (error) {
+        console.error('Get currencies error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch currencies'
+        });
+    }
+};
+exports.getAllCurrencies = getAllCurrencies;
 // Approve transaction
 const approveTransaction = async (req, res) => {
+    console.log('approveTransaction request params:', req.params);
+    console.log('approveTransaction request body:', req.body);
     try {
         const { id } = req.params;
         const { paymentMethod, paymentReference, adminNotes } = req.body;
@@ -142,6 +166,8 @@ const approveTransaction = async (req, res) => {
 exports.approveTransaction = approveTransaction;
 // Reject transaction
 const rejectTransaction = async (req, res) => {
+    console.log('rejectTransaction request params:', req.params);
+    console.log('rejectTransaction request body:', req.body);
     try {
         const { id } = req.params;
         const { rejectionReason, adminNotes } = req.body;
@@ -327,7 +353,7 @@ const getDashboardStats = async (req, res) => {
     }
 };
 exports.getDashboardStats = getDashboardStats;
-// Update exchange rate
+// Update exchange rate (مع التعديلات النهائية لـ Decimal و updatedBy)
 const updateExchangeRate = async (req, res) => {
     try {
         const { fromCurrencyCode, toCurrencyCode, rate, adminFeePercent } = req.body;
@@ -351,15 +377,15 @@ const updateExchangeRate = async (req, res) => {
                 }
             },
             update: {
-                rate: parseFloat(rate),
-                adminFeePercent: parseFloat(adminFeePercent),
+                rate: new client_1.Prisma.Decimal(rate),
+                adminFeePercent: new client_1.Prisma.Decimal(adminFeePercent),
                 updatedBy: req.user.id
             },
             create: {
                 fromCurrencyId: fromCurrency.id,
                 toCurrencyId: toCurrency.id,
-                rate: parseFloat(rate),
-                adminFeePercent: parseFloat(adminFeePercent),
+                rate: new client_1.Prisma.Decimal(rate),
+                adminFeePercent: new client_1.Prisma.Decimal(adminFeePercent),
                 updatedBy: req.user.id
             }
         });

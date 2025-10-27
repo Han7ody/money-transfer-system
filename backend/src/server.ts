@@ -4,12 +4,15 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
-import { verifyToken, isAdmin, generateToken } from './middleware/auth';
+import { verifyToken, isAdmin } from './middleware/auth';
 import { uploadReceipt, handleUploadError } from './middleware/upload';
 import * as transactionController from './controllers/transactionController';
 import * as adminController from './controllers/adminController';
+import * as userController from './controllers/userController';
+import authRoutes from './routes/authRoutes';
+import path from 'path';
+
 
 dotenv.config();
 
@@ -27,179 +30,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// Serve uploaded files
-app.use('/uploads', express.static('uploads'));
+// Serve uploaded files (absolute path for dev and prod)
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // ==================== AUTH ROUTES ====================
+app.use('/api/auth', authRoutes);
 
-// Register
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { fullName, email, phone, password, country } = req.body;
+// ==================== USER ROUTES ====================
 
-    // Validation
-    if (!fullName || !email || !phone || !password || !country) {
-      return res.status(400).json({
-        success: false,
-        message: 'All fields are required'
-      });
-    }
-
-    // Check if user exists
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ email }, { phone }]
-      }
-    });
-
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'User with this email or phone already exists'
-      });
-    }
-
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        fullName,
-        email,
-        phone,
-        passwordHash,
-        country,
-        role: 'USER'
-      }
-    });
-
-    // Generate token
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      role: user.role
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      data: {
-        user: {
-          id: user.id,
-          fullName: user.fullName,
-          email: user.email,
-          phone: user.phone,
-          role: user.role
-        },
-        token
-      }
-    });
-  } catch (error) {
-    console.error('Register error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Registration failed'
-    });
-  }
-});
-
-// Login
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and password are required'
-      });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { email }
-    });
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: 'Account is deactivated'
-      });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      role: user.role
-    });
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        user: {
-          id: user.id,
-          fullName: user.fullName,
-          email: user.email,
-          phone: user.phone,
-          role: user.role
-        },
-        token
-      }
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Login failed'
-    });
-  }
-});
-
-// Get current user
-app.get('/api/auth/me', verifyToken, async (req: any, res) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phone: true,
-        role: true,
-        country: true,
-        isVerified: true,
-        createdAt: true
-      }
-    });
-
-    res.json({
-      success: true,
-      data: user
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch user data'
-    });
-  }
-});
+app.put('/api/users/me', verifyToken, userController.updateCurrentUser);
+app.put('/api/users/me/notification-settings', verifyToken, userController.updateNotificationSettings);
 
 // ==================== TRANSACTION ROUTES ====================
 

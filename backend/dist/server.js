@@ -226,6 +226,8 @@ app.get('/api/exchange-rate', auth_1.verifyToken, transactionController.getExcha
 app.post('/api/transactions/:id/cancel', auth_1.verifyToken, transactionController.cancelTransaction);
 // ==================== ADMIN ROUTES ====================
 app.get('/api/admin/transactions', auth_1.verifyToken, auth_1.isAdmin, adminController.getAllTransactions);
+// 🛑 المسار المضاف لجلب العملات
+app.get('/api/admin/currencies', auth_1.verifyToken, auth_1.isAdmin, adminController.getAllCurrencies);
 app.post('/api/admin/transactions/:id/approve', auth_1.verifyToken, auth_1.isAdmin, adminController.approveTransaction);
 app.post('/api/admin/transactions/:id/reject', auth_1.verifyToken, auth_1.isAdmin, adminController.rejectTransaction);
 app.post('/api/admin/transactions/:id/complete', auth_1.verifyToken, auth_1.isAdmin, adminController.completeTransaction);

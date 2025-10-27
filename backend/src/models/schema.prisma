@@ -20,6 +20,19 @@ model User {
   country       String
   isVerified    Boolean  @default(false) @map("is_verified")
   isActive      Boolean  @default(true) @map("is_active")
+
+  // Notification Preferences
+  notificationsOnEmail          Boolean  @default(true) @map("notifications_on_email")
+  notificationsOnSms            Boolean  @default(true) @map("notifications_on_sms")
+  notificationsOnTransactionUpdate Boolean  @default(true) @map("notifications_on_transaction_update")
+  notificationsOnMarketing      Boolean  @default(false) @map("notifications_on_marketing")
+
+  // Verification & Password Reset
+  verificationOtp             String?   @map("verification_otp")
+  verificationOtpExpiresAt    DateTime? @map("verification_otp_expires_at")
+  passwordResetToken          String?   @unique @map("password_reset_token")
+  passwordResetTokenExpiresAt DateTime? @map("password_reset_token_expires_at")
+
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
