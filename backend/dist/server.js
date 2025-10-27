@@ -41,264 +41,259 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const morgan_1 = __importDefault(require("morgan"));
+const compression_1 = __importDefault(require("compression"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const client_1 = require("@prisma/client");
+// Middleware imports
 const auth_1 = require("./middleware/auth");
 const upload_1 = require("./middleware/upload");
+const errorHandler_1 = require("./middleware/errorHandler");
+const security_1 = require("./middleware/security");
+const validators_1 = require("./middleware/validators");
+// Controllers
 const transactionController = __importStar(require("./controllers/transactionController"));
 const adminController = __importStar(require("./controllers/adminController"));
+// Utils
+const logger_1 = __importStar(require("./utils/logger"));
+const cache_1 = require("./utils/cache");
+// Load environment variables
 dotenv_1.default.config();
+// Initialize Express app
 const app = (0, express_1.default)();
 const prisma = new client_1.PrismaClient();
 const PORT = process.env.PORT || 5000;
-// Middleware
-app.use((0, helmet_1.default)());
+// Initialize Redis (optional - app will work without it)
+(0, cache_1.initRedis)();
+// ==================== MIDDLEWARE ====================
+// Security middleware
+app.use((0, helmet_1.default)(security_1.securityHeaders));
 app.use((0, cors_1.default)({
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     credentials: true
 }));
-app.use(express_1.default.json());
-app.use(express_1.default.urlencoded({ extended: true }));
-app.use((0, morgan_1.default)('dev'));
+// Body parsing middleware
+app.use(express_1.default.json({ limit: '10mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
+// Compression middleware
+app.use((0, compression_1.default)());
+// Logging middleware
+app.use((0, morgan_1.default)('combined', { stream: logger_1.morganStream }));
+// Input sanitization
+app.use(security_1.sanitizeInput);
 // Serve uploaded files
 app.use('/uploads', express_1.default.static('uploads'));
+// Apply general rate limiting to all API routes
+app.use('/api/', security_1.apiLimiter);
 // ==================== AUTH ROUTES ====================
-// Register
-app.post('/api/auth/register', async (req, res) => {
-    try {
-        const { fullName, email, phone, password, country } = req.body;
-        // Validation
-        if (!fullName || !email || !phone || !password || !country) {
-            return res.status(400).json({
-                success: false,
-                message: 'All fields are required'
-            });
+// Register - with strict rate limiting
+app.post('/api/auth/register', security_1.authLimiter, validators_1.registerValidation, (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    const { fullName, email, phone, password, country } = req.body;
+    // Check if user exists
+    const existingUser = await prisma.user.findFirst({
+        where: {
+            OR: [{ email }, { phone }]
         }
-        // Check if user exists
-        const existingUser = await prisma.user.findFirst({
-            where: {
-                OR: [{ email }, { phone }]
-            }
-        });
-        if (existingUser) {
-            return res.status(400).json({
-                success: false,
-                message: 'User with this email or phone already exists'
-            });
-        }
-        // Hash password
-        const passwordHash = await bcrypt_1.default.hash(password, 10);
-        // Create user
-        const user = await prisma.user.create({
-            data: {
-                fullName,
-                email,
-                phone,
-                passwordHash,
-                country,
-                role: 'USER'
-            }
-        });
-        // Generate token
-        const token = (0, auth_1.generateToken)({
-            id: user.id,
-            email: user.email,
-            role: user.role
-        });
-        res.status(201).json({
-            success: true,
-            message: 'User registered successfully',
-            data: {
-                user: {
-                    id: user.id,
-                    fullName: user.fullName,
-                    email: user.email,
-                    phone: user.phone,
-                    role: user.role
-                },
-                token
-            }
-        });
-    }
-    catch (error) {
-        console.error('Register error:', error);
-        res.status(500).json({
+    });
+    if (existingUser) {
+        return res.status(400).json({
             success: false,
-            message: 'Registration failed'
+            message: 'المستخدم موجود مسبقاً بهذا البريد الإلكتروني أو رقم الهاتف'
         });
     }
-});
-// Login
-app.post('/api/auth/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        if (!email || !password) {
-            return res.status(400).json({
-                success: false,
-                message: 'Email and password are required'
-            });
+    // Hash password
+    const passwordHash = await bcrypt_1.default.hash(password, 10);
+    // Create user
+    const user = await prisma.user.create({
+        data: {
+            fullName,
+            email,
+            phone,
+            passwordHash,
+            country,
+            role: 'USER'
         }
-        const user = await prisma.user.findUnique({
-            where: { email }
-        });
-        if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid credentials'
-            });
+    });
+    logger_1.default.info(`New user registered: ${user.email}`);
+    // Generate token
+    const token = (0, auth_1.generateToken)({
+        id: user.id,
+        email: user.email,
+        role: user.role
+    });
+    res.status(201).json({
+        success: true,
+        message: 'تم التسجيل بنجاح',
+        data: {
+            user: {
+                id: user.id,
+                fullName: user.fullName,
+                email: user.email,
+                phone: user.phone,
+                role: user.role
+            },
+            token
         }
-        if (!user.isActive) {
-            return res.status(403).json({
-                success: false,
-                message: 'Account is deactivated'
-            });
-        }
-        const isPasswordValid = await bcrypt_1.default.compare(password, user.passwordHash);
-        if (!isPasswordValid) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid credentials'
-            });
-        }
-        const token = (0, auth_1.generateToken)({
-            id: user.id,
-            email: user.email,
-            role: user.role
-        });
-        res.json({
-            success: true,
-            message: 'Login successful',
-            data: {
-                user: {
-                    id: user.id,
-                    fullName: user.fullName,
-                    email: user.email,
-                    phone: user.phone,
-                    role: user.role
-                },
-                token
-            }
-        });
-    }
-    catch (error) {
-        console.error('Login error:', error);
-        res.status(500).json({
+    });
+}));
+// Login - with strict rate limiting
+app.post('/api/auth/login', security_1.authLimiter, validators_1.loginValidation, (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    const { email, password } = req.body;
+    const user = await prisma.user.findUnique({
+        where: { email }
+    });
+    if (!user) {
+        logger_1.default.warn(`Failed login attempt for non-existent user: ${email}`);
+        return res.status(401).json({
             success: false,
-            message: 'Login failed'
+            message: 'البريد الإلكتروني أو كلمة المرور غير صحيحة'
         });
     }
-});
+    if (!user.isActive) {
+        logger_1.default.warn(`Login attempt for deactivated account: ${email}`);
+        return res.status(403).json({
+            success: false,
+            message: 'الحساب معطل'
+        });
+    }
+    const isPasswordValid = await bcrypt_1.default.compare(password, user.passwordHash);
+    if (!isPasswordValid) {
+        logger_1.default.warn(`Failed login attempt with wrong password: ${email}`);
+        return res.status(401).json({
+            success: false,
+            message: 'البريد الإلكتروني أو كلمة المرور غير صحيحة'
+        });
+    }
+    logger_1.default.info(`User logged in: ${user.email}`);
+    const token = (0, auth_1.generateToken)({
+        id: user.id,
+        email: user.email,
+        role: user.role
+    });
+    res.json({
+        success: true,
+        message: 'تم تسجيل الدخول بنجاح',
+        data: {
+            user: {
+                id: user.id,
+                fullName: user.fullName,
+                email: user.email,
+                phone: user.phone,
+                role: user.role
+            },
+            token
+        }
+    });
+}));
 // Get current user
-app.get('/api/auth/me', auth_1.verifyToken, async (req, res) => {
-    try {
-        const user = await prisma.user.findUnique({
-            where: { id: req.user.id },
-            select: {
-                id: true,
-                fullName: true,
-                email: true,
-                phone: true,
-                role: true,
-                country: true,
-                isVerified: true,
-                createdAt: true
-            }
-        });
-        res.json({
-            success: true,
-            data: user
-        });
-    }
-    catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch user data'
-        });
-    }
-});
+app.get('/api/auth/me', auth_1.verifyToken, (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phone: true,
+            role: true,
+            country: true,
+            isVerified: true,
+            createdAt: true
+        }
+    });
+    res.json({
+        success: true,
+        data: user
+    });
+}));
 // ==================== TRANSACTION ROUTES ====================
-app.post('/api/transactions', auth_1.verifyToken, transactionController.createTransaction);
-app.post('/api/transactions/:transactionId/upload', auth_1.verifyToken, upload_1.uploadReceipt, upload_1.handleUploadError, transactionController.uploadReceipt);
-app.get('/api/transactions', auth_1.verifyToken, transactionController.getUserTransactions);
-app.get('/api/transactions/:id', auth_1.verifyToken, transactionController.getTransactionById);
-app.get('/api/exchange-rate', auth_1.verifyToken, transactionController.getExchangeRate);
-app.post('/api/transactions/:id/cancel', auth_1.verifyToken, transactionController.cancelTransaction);
+app.post('/api/transactions', auth_1.verifyToken, validators_1.createTransactionValidation, transactionController.createTransaction);
+app.post('/api/transactions/:transactionId/upload', auth_1.verifyToken, security_1.uploadLimiter, upload_1.uploadReceipt, upload_1.handleUploadError, transactionController.uploadReceipt);
+app.get('/api/transactions', auth_1.verifyToken, validators_1.paginationValidation, transactionController.getUserTransactions);
+app.get('/api/transactions/:id', auth_1.verifyToken, validators_1.transactionIdValidation, transactionController.getTransactionById);
+// Cache exchange rates for 5 minutes
+app.get('/api/exchange-rate', auth_1.verifyToken, validators_1.exchangeRateValidation, (0, cache_1.cacheMiddleware)(300), transactionController.getExchangeRate);
+app.post('/api/transactions/:id/cancel', auth_1.verifyToken, validators_1.transactionIdValidation, transactionController.cancelTransaction);
 // ==================== ADMIN ROUTES ====================
-app.get('/api/admin/transactions', auth_1.verifyToken, auth_1.isAdmin, adminController.getAllTransactions);
-app.post('/api/admin/transactions/:id/approve', auth_1.verifyToken, auth_1.isAdmin, adminController.approveTransaction);
-app.post('/api/admin/transactions/:id/reject', auth_1.verifyToken, auth_1.isAdmin, adminController.rejectTransaction);
-app.post('/api/admin/transactions/:id/complete', auth_1.verifyToken, auth_1.isAdmin, adminController.completeTransaction);
-app.get('/api/admin/dashboard/stats', auth_1.verifyToken, auth_1.isAdmin, adminController.getDashboardStats);
-app.post('/api/admin/exchange-rates', auth_1.verifyToken, auth_1.isAdmin, adminController.updateExchangeRate);
+app.get('/api/admin/transactions', auth_1.verifyToken, auth_1.isAdmin, security_1.adminLimiter, validators_1.paginationValidation, adminController.getAllTransactions);
+// Cache currencies for 10 minutes
+app.get('/api/admin/currencies', auth_1.verifyToken, auth_1.isAdmin, security_1.adminLimiter, (0, cache_1.cacheMiddleware)(600), adminController.getAllCurrencies);
+app.post('/api/admin/transactions/:id/approve', auth_1.verifyToken, auth_1.isAdmin, security_1.adminLimiter, validators_1.approveTransactionValidation, adminController.approveTransaction);
+app.post('/api/admin/transactions/:id/reject', auth_1.verifyToken, auth_1.isAdmin, security_1.adminLimiter, validators_1.rejectTransactionValidation, adminController.rejectTransaction);
+app.post('/api/admin/transactions/:id/complete', auth_1.verifyToken, auth_1.isAdmin, security_1.adminLimiter, validators_1.transactionIdValidation, adminController.completeTransaction);
+// Cache dashboard stats for 2 minutes
+app.get('/api/admin/dashboard/stats', auth_1.verifyToken, auth_1.isAdmin, security_1.adminLimiter, (0, cache_1.cacheMiddleware)(120), adminController.getDashboardStats);
+app.post('/api/admin/exchange-rates', auth_1.verifyToken, auth_1.isAdmin, security_1.adminLimiter, validators_1.updateExchangeRateValidation, adminController.updateExchangeRate);
 // ==================== NOTIFICATIONS ====================
-app.get('/api/notifications', auth_1.verifyToken, async (req, res) => {
-    try {
-        const notifications = await prisma.notification.findMany({
-            where: { userId: req.user.id },
-            orderBy: { createdAt: 'desc' },
-            take: 20
-        });
-        res.json({
-            success: true,
-            data: notifications
-        });
-    }
-    catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch notifications'
-        });
-    }
-});
-app.post('/api/notifications/:id/read', auth_1.verifyToken, async (req, res) => {
-    try {
-        await prisma.notification.update({
-            where: { id: parseInt(req.params.id) },
-            data: { isRead: true }
-        });
-        res.json({
-            success: true,
-            message: 'Notification marked as read'
-        });
-    }
-    catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Failed to update notification'
-        });
-    }
-});
+app.get('/api/notifications', auth_1.verifyToken, (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    const notifications = await prisma.notification.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 20
+    });
+    res.json({
+        success: true,
+        data: notifications
+    });
+}));
+app.post('/api/notifications/:id/read', auth_1.verifyToken, (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    await prisma.notification.update({
+        where: { id: parseInt(req.params.id) },
+        data: { isRead: true }
+    });
+    res.json({
+        success: true,
+        message: 'تم تحديث الإشعار'
+    });
+}));
 // ==================== HEALTH CHECK ====================
 app.get('/api/health', (req, res) => {
     res.json({
         success: true,
-        message: 'Server is running',
-        timestamp: new Date().toISOString()
+        message: 'الخادم يعمل بنجاح',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
     });
 });
-// 404 Handler
-app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        message: 'Route not found'
+// ==================== ERROR HANDLERS ====================
+// 404 handler
+app.use(errorHandler_1.notFoundHandler);
+// Global error handler
+app.use(errorHandler_1.errorHandler);
+// ==================== START SERVER ====================
+const server = app.listen(PORT, () => {
+    logger_1.default.info(`🚀 Server is running on port ${PORT}`);
+    logger_1.default.info(`📡 API: http://localhost:${PORT}/api`);
+    logger_1.default.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+// ==================== GRACEFUL SHUTDOWN ====================
+const gracefulShutdown = async (signal) => {
+    logger_1.default.info(`${signal} received. Starting graceful shutdown...`);
+    // Stop accepting new connections
+    server.close(async () => {
+        logger_1.default.info('HTTP server closed');
+        // Close database connection
+        await prisma.$disconnect();
+        logger_1.default.info('Database connection closed');
+        // Close Redis connection
+        await (0, cache_1.closeRedis)();
+        logger_1.default.info('Graceful shutdown completed');
+        process.exit(0);
     });
+    // Force shutdown after 30 seconds
+    setTimeout(() => {
+        logger_1.default.error('Forced shutdown after timeout');
+        process.exit(1);
+    }, 30000);
+};
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    logger_1.default.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
-// Error Handler
-app.use((err, req, res, next) => {
-    console.error('Server error:', err);
-    res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-    });
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+    logger_1.default.error('Uncaught Exception:', error);
+    gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
-// Start Server
-app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
-    console.log(`📡 API: http://localhost:${PORT}/api`);
-});
-// Graceful shutdown
-process.on('SIGINT', async () => {
-    await prisma.$disconnect();
-    process.exit(0);
-});
+exports.default = app;

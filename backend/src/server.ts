@@ -3,47 +3,90 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
+
+// Middleware imports
 import { verifyToken, isAdmin, generateToken } from './middleware/auth';
 import { uploadReceipt, handleUploadError } from './middleware/upload';
+import { errorHandler, notFoundHandler, asyncHandler } from './middleware/errorHandler';
+import {
+  apiLimiter,
+  authLimiter,
+  uploadLimiter,
+  adminLimiter,
+  sanitizeInput,
+  securityHeaders
+} from './middleware/security';
+import {
+  registerValidation,
+  loginValidation,
+  createTransactionValidation,
+  exchangeRateValidation,
+  transactionIdValidation,
+  approveTransactionValidation,
+  rejectTransactionValidation,
+  updateExchangeRateValidation,
+  paginationValidation,
+} from './middleware/validators';
+
+// Controllers
 import * as transactionController from './controllers/transactionController';
 import * as adminController from './controllers/adminController';
 
+// Utils
+import logger, { morganStream } from './utils/logger';
+import { initRedis, closeRedis, cacheMiddleware } from './utils/cache';
+
+// Load environment variables
 dotenv.config();
 
+// Initialize Express app
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(helmet());
+// Initialize Redis (optional - app will work without it)
+initRedis();
+
+// ==================== MIDDLEWARE ====================
+
+// Security middleware
+app.use(helmet(securityHeaders));
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan('dev'));
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Compression middleware
+app.use(compression());
+
+// Logging middleware
+app.use(morgan('combined', { stream: morganStream }));
+
+// Input sanitization
+app.use(sanitizeInput);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
 
+// Apply general rate limiting to all API routes
+app.use('/api/', apiLimiter);
+
 // ==================== AUTH ROUTES ====================
 
-// Register
-app.post('/api/auth/register', async (req, res) => {
-  try {
+// Register - with strict rate limiting
+app.post('/api/auth/register',
+  authLimiter,
+  registerValidation,
+  asyncHandler(async (req: any, res: any) => {
     const { fullName, email, phone, password, country } = req.body;
-
-    // Validation
-    if (!fullName || !email || !phone || !password || !country) {
-      return res.status(400).json({
-        success: false,
-        message: 'All fields are required'
-      });
-    }
 
     // Check if user exists
     const existingUser = await prisma.user.findFirst({
@@ -55,7 +98,7 @@ app.post('/api/auth/register', async (req, res) => {
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User with this email or phone already exists'
+        message: 'المستخدم موجود مسبقاً بهذا البريد الإلكتروني أو رقم الهاتف'
       });
     }
 
@@ -74,6 +117,8 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
 
+    logger.info(`New user registered: ${user.email}`);
+
     // Generate token
     const token = generateToken({
       id: user.id,
@@ -83,7 +128,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'تم التسجيل بنجاح',
       data: {
         user: {
           id: user.id,
@@ -95,53 +140,47 @@ app.post('/api/auth/register', async (req, res) => {
         token
       }
     });
-  } catch (error) {
-    console.error('Register error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Registration failed'
-    });
-  }
-});
+  })
+);
 
-// Login
-app.post('/api/auth/login', async (req, res) => {
-  try {
+// Login - with strict rate limiting
+app.post('/api/auth/login',
+  authLimiter,
+  loginValidation,
+  asyncHandler(async (req: any, res: any) => {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and password are required'
-      });
-    }
 
     const user = await prisma.user.findUnique({
       where: { email }
     });
 
     if (!user) {
+      logger.warn(`Failed login attempt for non-existent user: ${email}`);
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: 'البريد الإلكتروني أو كلمة المرور غير صحيحة'
       });
     }
 
     if (!user.isActive) {
+      logger.warn(`Login attempt for deactivated account: ${email}`);
       return res.status(403).json({
         success: false,
-        message: 'Account is deactivated'
+        message: 'الحساب معطل'
       });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isPasswordValid) {
+      logger.warn(`Failed login attempt with wrong password: ${email}`);
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: 'البريد الإلكتروني أو كلمة المرور غير صحيحة'
       });
     }
+
+    logger.info(`User logged in: ${user.email}`);
 
     const token = generateToken({
       id: user.id,
@@ -151,7 +190,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Login successful',
+      message: 'تم تسجيل الدخول بنجاح',
       data: {
         user: {
           id: user.id,
@@ -163,18 +202,13 @@ app.post('/api/auth/login', async (req, res) => {
         token
       }
     });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Login failed'
-    });
-  }
-});
+  })
+);
 
 // Get current user
-app.get('/api/auth/me', verifyToken, async (req: any, res) => {
-  try {
+app.get('/api/auth/me',
+  verifyToken,
+  asyncHandler(async (req: any, res: any) => {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
@@ -193,40 +227,116 @@ app.get('/api/auth/me', verifyToken, async (req: any, res) => {
       success: true,
       data: user
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch user data'
-    });
-  }
-});
+  })
+);
 
 // ==================== TRANSACTION ROUTES ====================
 
-app.post('/api/transactions', verifyToken, transactionController.createTransaction);
-app.post('/api/transactions/:transactionId/upload', verifyToken, uploadReceipt, handleUploadError, transactionController.uploadReceipt);
-app.get('/api/transactions', verifyToken, transactionController.getUserTransactions);
-app.get('/api/transactions/:id', verifyToken, transactionController.getTransactionById);
-app.get('/api/exchange-rate', verifyToken, transactionController.getExchangeRate);
-app.post('/api/transactions/:id/cancel', verifyToken, transactionController.cancelTransaction);
+app.post('/api/transactions',
+  verifyToken,
+  createTransactionValidation,
+  transactionController.createTransaction
+);
+
+app.post('/api/transactions/:transactionId/upload',
+  verifyToken,
+  uploadLimiter,
+  uploadReceipt,
+  handleUploadError,
+  transactionController.uploadReceipt
+);
+
+app.get('/api/transactions',
+  verifyToken,
+  paginationValidation,
+  transactionController.getUserTransactions
+);
+
+app.get('/api/transactions/:id',
+  verifyToken,
+  transactionIdValidation,
+  transactionController.getTransactionById
+);
+
+// Cache exchange rates for 5 minutes
+app.get('/api/exchange-rate',
+  verifyToken,
+  exchangeRateValidation,
+  cacheMiddleware(300),
+  transactionController.getExchangeRate
+);
+
+app.post('/api/transactions/:id/cancel',
+  verifyToken,
+  transactionIdValidation,
+  transactionController.cancelTransaction
+);
 
 // ==================== ADMIN ROUTES ====================
 
-app.get('/api/admin/transactions', verifyToken, isAdmin, adminController.getAllTransactions);
+app.get('/api/admin/transactions',
+  verifyToken,
+  isAdmin,
+  adminLimiter,
+  paginationValidation,
+  adminController.getAllTransactions
+);
 
-// 🛑 المسار المضاف لجلب العملات
-app.get('/api/admin/currencies', verifyToken, isAdmin, adminController.getAllCurrencies); 
+// Cache currencies for 10 minutes
+app.get('/api/admin/currencies',
+  verifyToken,
+  isAdmin,
+  adminLimiter,
+  cacheMiddleware(600),
+  adminController.getAllCurrencies
+);
 
-app.post('/api/admin/transactions/:id/approve', verifyToken, isAdmin, adminController.approveTransaction);
-app.post('/api/admin/transactions/:id/reject', verifyToken, isAdmin, adminController.rejectTransaction);
-app.post('/api/admin/transactions/:id/complete', verifyToken, isAdmin, adminController.completeTransaction);
-app.get('/api/admin/dashboard/stats', verifyToken, isAdmin, adminController.getDashboardStats);
-app.post('/api/admin/exchange-rates', verifyToken, isAdmin, adminController.updateExchangeRate);
+app.post('/api/admin/transactions/:id/approve',
+  verifyToken,
+  isAdmin,
+  adminLimiter,
+  approveTransactionValidation,
+  adminController.approveTransaction
+);
+
+app.post('/api/admin/transactions/:id/reject',
+  verifyToken,
+  isAdmin,
+  adminLimiter,
+  rejectTransactionValidation,
+  adminController.rejectTransaction
+);
+
+app.post('/api/admin/transactions/:id/complete',
+  verifyToken,
+  isAdmin,
+  adminLimiter,
+  transactionIdValidation,
+  adminController.completeTransaction
+);
+
+// Cache dashboard stats for 2 minutes
+app.get('/api/admin/dashboard/stats',
+  verifyToken,
+  isAdmin,
+  adminLimiter,
+  cacheMiddleware(120),
+  adminController.getDashboardStats
+);
+
+app.post('/api/admin/exchange-rates',
+  verifyToken,
+  isAdmin,
+  adminLimiter,
+  updateExchangeRateValidation,
+  adminController.updateExchangeRate
+);
 
 // ==================== NOTIFICATIONS ====================
 
-app.get('/api/notifications', verifyToken, async (req: any, res) => {
-  try {
+app.get('/api/notifications',
+  verifyToken,
+  asyncHandler(async (req: any, res: any) => {
     const notifications = await prisma.notification.findMany({
       where: { userId: req.user.id },
       orderBy: { createdAt: 'desc' },
@@ -237,16 +347,12 @@ app.get('/api/notifications', verifyToken, async (req: any, res) => {
       success: true,
       data: notifications
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch notifications'
-    });
-  }
-});
+  })
+);
 
-app.post('/api/notifications/:id/read', verifyToken, async (req: any, res) => {
-  try {
+app.post('/api/notifications/:id/read',
+  verifyToken,
+  asyncHandler(async (req: any, res: any) => {
     await prisma.notification.update({
       where: { id: parseInt(req.params.id) },
       data: { isRead: true }
@@ -254,51 +360,77 @@ app.post('/api/notifications/:id/read', verifyToken, async (req: any, res) => {
 
     res.json({
       success: true,
-      message: 'Notification marked as read'
+      message: 'تم تحديث الإشعار'
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update notification'
-    });
-  }
-});
+  })
+);
 
 // ==================== HEALTH CHECK ====================
 
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
-    message: 'Server is running',
-    timestamp: new Date().toISOString()
+    message: 'الخادم يعمل بنجاح',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// 404 Handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Route not found'
+// ==================== ERROR HANDLERS ====================
+
+// 404 handler
+app.use(notFoundHandler);
+
+// Global error handler
+app.use(errorHandler);
+
+// ==================== START SERVER ====================
+
+const server = app.listen(PORT, () => {
+  logger.info(`🚀 Server is running on port ${PORT}`);
+  logger.info(`📡 API: http://localhost:${PORT}/api`);
+  logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// ==================== GRACEFUL SHUTDOWN ====================
+
+const gracefulShutdown = async (signal: string) => {
+  logger.info(`${signal} received. Starting graceful shutdown...`);
+
+  // Stop accepting new connections
+  server.close(async () => {
+    logger.info('HTTP server closed');
+
+    // Close database connection
+    await prisma.$disconnect();
+    logger.info('Database connection closed');
+
+    // Close Redis connection
+    await closeRedis();
+
+    logger.info('Graceful shutdown completed');
+    process.exit(0);
   });
+
+  // Force shutdown after 30 seconds
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Error Handler
-app.use((err: any, req: any, res: any, next: any) => {
-  console.error('Server error:', err);
-  res.status(500).json({
-    success: false,
-    message: 'Internal server error'
-  });
+// Handle uncaught exceptions
+process.on('uncaughtException', (error: Error) => {
+  logger.error('Uncaught Exception:', error);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📡 API: http://localhost:${PORT}/api`);
-});
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
+export default app;
