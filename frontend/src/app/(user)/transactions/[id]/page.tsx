@@ -58,28 +58,50 @@ export default function TransactionDetailsPage() {
   const generatePdf = async (action = 'download') => {
     if (!printRef.current) return;
     setIsGeneratingPdf(true);
-    const canvas = await html2canvas(printRef.current, { scale: 2 });
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const width = pdfWidth - 40;
-    const height = (canvas.height * width) / canvas.width;
-    pdf.addImage(imgData, 'PNG', 20, 20, width, height);
-    if (action === 'share') {
-      const pdfBlob = pdf.output('blob');
-      const pdfFile = new File([pdfBlob], `${transaction.transactionRef}.pdf`, { type: 'application/pdf' });
-      if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-        try {
-          await navigator.share({ title: `تفاصيل المعاملة: ${transaction.transactionRef}`, text: `إليك تفاصيل المعاملة المالية رقم ${transaction.transactionRef}`, files: [pdfFile] });
-        } catch (error) { console.error('Error sharing:', error); }
+    try {
+      const canvas = await html2canvas(printRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        // Improved options for better compatibility
+        onclone: (clonedDoc) => {
+          const clonedElement = clonedDoc.querySelector('[data-html2canvas-ignore]');
+          if (clonedElement) {
+            clonedElement.style.display = 'none';
+          }
+        }
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const width = pdfWidth - 40;
+      const height = (canvas.height * width) / canvas.width;
+      pdf.addImage(imgData, 'PNG', 20, 20, width, height);
+      if (action === 'share') {
+        const pdfBlob = pdf.output('blob');
+        const pdfFile = new File([pdfBlob], `${transaction.transactionRef}.pdf`, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+          try {
+            await navigator.share({ title: `تفاصيل المعاملة: ${transaction.transactionRef}`, text: `إليك تفاصيل المعاملة المالية رقم ${transaction.transactionRef}`, files: [pdfFile] });
+          } catch (error) {
+            console.error('Error sharing:', error);
+            alert('حدث خطأ أثناء المشاركة، سيتم تحميل الملف بدلاً من ذلك.');
+            pdf.save(`${transaction.transactionRef}.pdf`);
+          }
+        } else {
+          alert('المشاركة غير مدعومة في هذا المتصفح، سيتم تحميل الملف بدلاً من ذلك.');
+          pdf.save(`${transaction.transactionRef}.pdf`);
+        }
       } else {
-        alert('المشاركة غير مدعومة في هذا المتصفح، سيتم تحميل الملف بدلاً من ذلك.');
         pdf.save(`${transaction.transactionRef}.pdf`);
       }
-    } else {
-      pdf.save(`${transaction.transactionRef}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('حدث خطأ أثناء إنشاء ملف PDF. يرجى المحاولة مرة أخرى.\n\nتفاصيل الخطأ: ' + error.message);
+    } finally {
+      setIsGeneratingPdf(false);
     }
-    setIsGeneratingPdf(false);
   };
 
   // 🛑 Render loading state until component is mounted to prevent hydration mismatch
