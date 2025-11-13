@@ -186,11 +186,21 @@ const AdminDashboardPage = () => {
             </div>
           </div>
           <nav className="space-y-2">
-            <button className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 text-indigo-700 rounded-xl font-semibold">
+          <nav className="space-y-2">
+            <button
+              onClick={() => router.push("/admin")}
+              className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 text-indigo-700 rounded-xl font-semibold"
+            >
               <LayoutDashboard className="w-5 h-5" />
               <span>لوحة التحكم</span>
             </button>
-            {/* Add navigation to other pages later */}
+            <button
+              onClick={() => router.push("/admin/users")}
+              className="w-full flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-slate-50 rounded-xl font-semibold transition-colors"
+            >
+              <Users className="w-5 h-5" />
+              <span>إدارة المستخدمين</span>
+            </button>
           </nav>
           <div className="absolute bottom-6 left-6 right-6">
             <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-rose-600 hover:bg-rose-50 rounded-xl font-semibold transition-all">
