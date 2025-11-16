@@ -63,6 +63,10 @@ app.post('/api/admin/transactions/:id/complete', verifyToken, isAdmin, adminCont
 app.get('/api/admin/dashboard/stats', verifyToken, isAdmin, adminController.getDashboardStats);
 app.post('/api/admin/exchange-rates', verifyToken, isAdmin, adminController.updateExchangeRate);
 
+// Admin User Management Routes
+app.get('/api/admin/users', verifyToken, isAdmin, adminController.getAllUsers);
+app.put('/api/admin/users/:id/status', verifyToken, isAdmin, adminController.toggleUserStatus);
+
 // ==================== NOTIFICATIONS ====================
 
 app.get('/api/notifications', verifyToken, async (req: any, res) => {

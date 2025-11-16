@@ -208,6 +208,21 @@ export const adminAPI = {
   }) => {
     const response = await api.post('/admin/exchange-rates', data);
     return response.data;
+  },
+
+  getAllUsers: async (params?: {
+    search?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const response = await api.get('/admin/users', { params });
+    return response.data;
+  },
+
+  toggleUserStatus: async (userId: number, isActive: boolean) => {
+    const response = await api.put(`/admin/users/${userId}/status`, { isActive });
+    return response.data;
   }
 };
 

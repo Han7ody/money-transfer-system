@@ -6,6 +6,8 @@
 }
 
 @theme inline {
+  /* Force RGB color space for compatibility with html2canvas */
+  --color-function: rgb;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);

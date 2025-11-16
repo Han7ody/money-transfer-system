@@ -51,10 +51,18 @@ export const getAllTransactions = async (req: AuthRequest, res: Response) => {
       prisma.transaction.count({ where })
     ]);
 
+    // Transform receiptFilePath to receiptUrl
+    const transactionsWithUrl = transactions.map(tx => ({
+      ...tx,
+      receiptUrl: tx.receiptFilePath
+        ? `${req.protocol}://${req.get('host')}/uploads/${tx.receiptFilePath.split('/').pop()}`
+        : null
+    }));
+
     res.json({
       success: true,
       data: {
-        transactions,
+        transactions: transactionsWithUrl,
         pagination: {
           total,
           page: parseInt(page as string),
@@ -452,6 +460,140 @@ export const updateExchangeRate = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update exchange rate'
+    });
+  }
+};
+
+// Get all users for admin
+export const getAllUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    const { search, page = 1, limit = 20, status } = req.query;
+
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { fullName: { contains: search as string, mode: 'insensitive' } },
+        { email: { contains: search as string, mode: 'insensitive' } },
+        { phone: { contains: search as string } }
+      ];
+    }
+
+    if (status === 'active') {
+      where.isActive = true;
+    } else if (status === 'blocked') {
+      where.isActive = false;
+    }
+
+    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          country: true,
+          role: true,
+          isActive: true,
+          isVerified: true,
+          createdAt: true,
+          _count: {
+            select: {
+              transactions: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit as string)
+      }),
+      prisma.user.count({ where })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        users,
+        pagination: {
+          total,
+          page: parseInt(page as string),
+          limit: parseInt(limit as string),
+          totalPages: Math.ceil(total / parseInt(limit as string))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch users'
+    });
+  }
+};
+
+// Block/Unblock user
+export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    const user = await prisma.user.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.role === 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot block/unblock admin users'
+      });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: parseInt(id) },
+      data: { isActive }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user!.id,
+        action: isActive ? 'UNBLOCK_USER' : 'BLOCK_USER',
+        tableName: 'users',
+        recordId: parseInt(id),
+        details: { targetUser: user.email, action: isActive ? 'unblocked' : 'blocked' }
+      }
+    });
+
+    // Send notification to user
+    await prisma.notification.create({
+      data: {
+        userId: parseInt(id),
+        title: isActive ? 'Account Activated' : 'Account Blocked',
+        message: isActive
+          ? 'Your account has been activated. You can now use all features.'
+          : 'Your account has been blocked. Please contact support for more information.'
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `User ${isActive ? 'activated' : 'blocked'} successfully`,
+      data: updated
+    });
+  } catch (error) {
+    console.error('Toggle user status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user status'
     });
   }
 };
