@@ -1,106 +1,311 @@
 'use client';
+
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Mail, Lock, User, Eye, EyeOff, ArrowLeft, Check } from 'lucide-react';
+import { Input } from '@/components/ui/Input';
 import { authAPI } from '@/lib/api';
-import { UserPlus, Mail, Lock, User, Phone, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 
-const RegisterPage = () => {
+// Progress Steps Component
+const ProgressSteps = ({ currentStep }: { currentStep: number }) => {
+  const steps = [
+    { num: 1, label: 'إنشاء الحساب' },
+    { num: 2, label: 'المعلومات الشخصية' },
+    { num: 3, label: 'التحقق من الهوية' },
+    { num: 4, label: 'الموافقة' }
+  ];
+
+  return (
+    <div className="flex items-center justify-center mb-8">
+      {steps.map((step, index) => (
+        <React.Fragment key={step.num}>
+          <div className="flex flex-col items-center">
+            <div className={`
+              w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium
+              ${currentStep > step.num
+                ? 'bg-emerald-500 text-white'
+                : currentStep === step.num
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 text-slate-400'
+              }
+            `}>
+              {currentStep > step.num ? <Check className="w-5 h-5" /> : step.num}
+            </div>
+            <span className={`text-xs mt-1 hidden sm:block ${
+              currentStep >= step.num ? 'text-slate-700' : 'text-slate-400'
+            }`}>
+              {step.label}
+            </span>
+          </div>
+          {index < steps.length - 1 && (
+            <div className={`w-8 sm:w-12 h-0.5 mx-1 sm:mx-2 ${
+              currentStep > step.num ? 'bg-emerald-500' : 'bg-slate-200'
+            }`} />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
+
+export default function RegisterPage() {
   const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
-    phone: '',
     password: '',
-    confirmPassword: '',
-    country: 'Sudan'
+    confirmPassword: ''
   });
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: any) => {
-    e.preventDefault();
-    setError('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-    if (formData.password !== formData.confirmPassword) {
-      setError('كلمات المرور غير متطابقة');
-      return;
-    }
-    if (formData.password.length < 6) {
-      setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
-      return;
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.fullName.trim()) {
+      newErrors.fullName = 'الاسم الكامل مطلوب';
+    } else if (formData.fullName.trim().length < 3) {
+      newErrors.fullName = 'الاسم يجب أن يكون 3 أحرف على الأقل';
     }
 
-    setLoading(true);
-    try {
-      const { confirmPassword, ...apiData } = formData as any;
-      const response = await authAPI.register(apiData);
-      if (response.success) {
-        try {
-          await authAPI.sendVerificationOtp();
-        } catch (e) {
-          // حتى لو فشل الإرسال، نوجه المستخدم لصفحة التحقق ليتمكن من إعادة طلب الكود
-        }
-        router.push('/verify-email');
-      } else {
-        setError(response.message || 'فشل إنشاء الحساب. يرجى المحاولة مرة أخرى.');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'حدث خطأ غير متوقع.');
+    if (!formData.email) {
+      newErrors.email = 'البريد الإلكتروني مطلوب';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'البريد الإلكتروني غير صالح';
     }
-    setLoading(false);
+
+    if (!formData.password) {
+      newErrors.password = 'كلمة المرور مطلوبة';
+    } else if (formData.password.length < 8) {
+      newErrors.password = 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
+    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
+      newErrors.password = 'يجب أن تحتوي على حروف كبيرة وصغيرة وأرقام';
+    }
+
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'تأكيد كلمة المرور مطلوب';
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'كلمات المرور غير متطابقة';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateForm()) return;
+
+    setLoading(true);
+
+    try {
+      const response = await authAPI.register({
+        fullName: formData.fullName,
+        email: formData.email,
+        password: formData.password
+      });
+
+      if (response.success) {
+        // Store email for OTP verification
+        localStorage.setItem('registerEmail', formData.email);
+        router.push('/register/verify');
+      } else {
+        setErrors({ submit: response.message || 'حدث خطأ أثناء إنشاء الحساب' });
+      }
+    } catch (error: any) {
+      setErrors({ submit: error.response?.data?.message || 'حدث خطأ أثناء إنشاء الحساب' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  // Password strength indicator
+  const getPasswordStrength = () => {
+    const { password } = formData;
+    if (!password) return { strength: 0, label: '', color: '' };
+
+    let strength = 0;
+    if (password.length >= 8) strength++;
+    if (/[a-z]/.test(password)) strength++;
+    if (/[A-Z]/.test(password)) strength++;
+    if (/\d/.test(password)) strength++;
+    if (/[^a-zA-Z0-9]/.test(password)) strength++;
+
+    const labels = ['', 'ضعيفة', 'متوسطة', 'جيدة', 'قوية', 'ممتازة'];
+    const colors = ['', 'bg-rose-500', 'bg-orange-500', 'bg-amber-500', 'bg-emerald-500', 'bg-emerald-600'];
+
+    return { strength, label: labels[strength], color: colors[strength] };
+  };
+
+  const passwordStrength = getPasswordStrength();
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" dir="rtl">
-      <div className="w-full max-w-5xl">
-        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-5">
-            <div className="lg:col-span-2 bg-gradient-to-br from-indigo-600 to-violet-600 p-8 lg:p-12 text-white">
-              <h3 className="text-2xl font-bold mb-4">انضم إلينا اليوم</h3>
-              <p className="text-indigo-100 mb-8">ابدأ في إرسال الأموال بأمان وسرعة</p>
-              <div className="space-y-4">
-                <div className="flex items-start gap-3"><CheckCircle2 className="w-5 ه-5 mt-0.5" /><span>تسجيل مجاني بدون رسوم</span></div>
-                <div className="flex items-start gap-3"><CheckCircle2 className="w-5 ه-5 mt-0.5" /><span>أسعار صرف تنافسية</span></div>
-                <div className="flex items-start gap-3"><CheckCircle2 className="w-5 ه-5 mt-0.5" /><span>تحويلات سريعة وآمنة</span></div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100" dir="rtl">
+      <div className="container mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <Link href="/" className="flex items-center gap-2 text-slate-600 hover:text-slate-900">
+            <ArrowLeft className="w-5 h-5" />
+            <span className="text-sm">العودة</span>
+          </Link>
+          <Link href="/login" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
+            لديك حساب؟ تسجيل الدخول
+          </Link>
+        </div>
+
+        {/* Main Card */}
+        <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
+            {/* Logo */}
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <span className="text-white text-xl font-bold">ر</span>
               </div>
-              <div className="mt-12 pt-8 border-t border-white/20">
-                <p className="text-sm text-indigo-100 mb-3">مستخدم بالفعل؟</p>
-                <button onClick={() => router.push('/login')} className="w-full py-3 bg-white/20 hover:bg-white/30 rounded-xl font-semibold">تسجيل الدخول</button>
-              </div>
+              <h1 className="text-2xl font-bold text-slate-900">إنشاء حساب جديد</h1>
+              <p className="text-sm text-slate-500 mt-1">أدخل بياناتك للبدء</p>
             </div>
 
-            <div className="lg:col-span-3 p-8 lg:p-12">
-              <h1 className="text-3xl font-bold text-slate-900 mb-2">إنشاء حساب جديد</h1>
-              <p className="text-slate-600 mb-8">املأ البيانات التالية للبدء</p>
+            {/* Progress */}
+            <ProgressSteps currentStep={1} />
 
-              {error && (
-                <div className="mb-6 p-4 bg-rose-50 border-2 border-rose-200 rounded-xl flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-sm text-rose-800 font-medium">{error}</p>
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <Input
+                label="الاسم الكامل"
+                name="fullName"
+                type="text"
+                placeholder="أحمد محمد"
+                value={formData.fullName}
+                onChange={handleChange}
+                error={errors.fullName}
+                icon={User}
+                required
+              />
+
+              <Input
+                label="البريد الإلكتروني"
+                name="email"
+                type="email"
+                placeholder="example@email.com"
+                value={formData.email}
+                onChange={handleChange}
+                error={errors.email}
+                icon={Mail}
+                required
+                dir="ltr"
+              />
+
+              <div>
+                <div className="relative">
+                  <Input
+                    label="كلمة المرور"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={formData.password}
+                    onChange={handleChange}
+                    error={errors.password}
+                    icon={Lock}
+                    required
+                    dir="ltr"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute left-3 top-9 text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
+                {formData.password && (
+                  <div className="mt-2">
+                    <div className="flex gap-1 mb-1">
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <div
+                          key={i}
+                          className={`h-1 flex-1 rounded ${
+                            i <= passwordStrength.strength ? passwordStrength.color : 'bg-slate-200'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      قوة كلمة المرور: {passwordStrength.label}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="relative">
+                <Input
+                  label="تأكيد كلمة المرور"
+                  name="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  error={errors.confirmPassword}
+                  icon={Lock}
+                  required
+                  dir="ltr"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute left-3 top-9 text-slate-400 hover:text-slate-600"
+                >
+                  {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+
+              {errors.submit && (
+                <p className="text-sm text-rose-600 text-center">{errors.submit}</p>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div><label className="block text-sm font-bold mb-2">الاسم الكامل</label><div className="relative"><User className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" /><input type="text" name="fullName" value={formData.fullName} onChange={handleChange} className="w-full pr-12 pl-4 py-3 border-2 rounded-xl" required /></div></div>
-                <div><label className="block text-sm font-bold mb-2">البريد الإلكتروني</label><div className="relative"><Mail className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" /><input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full pr-12 pl-4 py-3 border-2 rounded-xl" required /></div></div>
-                <div><label className="block text-sm font-bold mb-2">رقم الهاتف</label><div className="relative"><Phone className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" /><input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full pr-12 pl-4 py-3 border-2 rounded-xl" required /></div></div>
-                <div><label className="block text-sm font-bold mb-2">كلمة ال��رور</label><div className="relative"><Lock className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" /><input type={showPassword ? 'text' : 'password'} name="password" value={formData.password} onChange={handleChange} className="w-full pr-12 pl-12 py-3 border-2 rounded-xl" required /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute left-4 top-1/2 -translate-y-1/2">{showPassword ? <EyeOff /> : <Eye />}</button></div></div>
-                <div><label className="block text-sm font-bold mb-2">تأكيد كلمة المرور</label><div className="relative"><Lock className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" /><input type={showConfirmPassword ? 'text' : 'password'} name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} className="w-full pr-12 pl-12 py-3 border-2 rounded-xl" required /><button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute left-4 top-1/2 -translate-y-1/2">{showConfirmPassword ? <EyeOff /> : <Eye />}</button></div></div>
-                
-                <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3 disabled:opacity-50">
-                  {loading ? (<><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>جاري إنشاء الحساب...</span></>) : (<><span>إنشاء حساب</span><UserPlus className="w-5 h-5" /></>)}
-                </button>
-              </form>
-            </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    جاري الإنشاء...
+                  </>
+                ) : (
+                  'إنشاء الحساب'
+                )}
+              </button>
+            </form>
+
+            {/* Terms */}
+            <p className="text-xs text-slate-500 text-center mt-4">
+              بالتسجيل، أنت توافق على{' '}
+              <Link href="/terms" className="text-indigo-600 hover:underline">
+                شروط الخدمة
+              </Link>{' '}
+              و{' '}
+              <Link href="/privacy" className="text-indigo-600 hover:underline">
+                سياسة الخصوصية
+              </Link>
+            </p>
           </div>
         </div>
       </div>
     </div>
   );
-};
-
-export default RegisterPage;
+}

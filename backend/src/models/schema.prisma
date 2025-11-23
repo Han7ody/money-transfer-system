@@ -33,6 +33,18 @@ model User {
   passwordResetToken          String?   @unique @map("password_reset_token")
   passwordResetTokenExpiresAt DateTime? @map("password_reset_token_expires_at")
 
+  // Profile fields (Step 2)
+  city          String?
+  dateOfBirth   DateTime? @map("date_of_birth")
+  nationality   String?
+
+  // KYC fields (Step 3)
+  kycStatus     KycStatus @default(NOT_SUBMITTED) @map("kyc_status")
+  kycDocuments  KycDocument[]
+  kycSubmittedAt DateTime? @map("kyc_submitted_at")
+  kycReviewedAt  DateTime? @map("kyc_reviewed_at")
+  kycReviewedBy  Int?      @map("kyc_reviewed_by")
+
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -194,4 +206,26 @@ model AuditLog {
   user User? @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
+}
+
+enum KycStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model KycDocument {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  type          String   // id_front, id_back, selfie
+  filePath      String   @map("file_path")
+  status        String   @default("pending") // pending, approved, rejected
+  rejectionReason String? @map("rejection_reason")
+  uploadedAt    DateTime @default(now()) @map("uploaded_at")
+  reviewedAt    DateTime? @map("reviewed_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("kyc_documents")
 }

@@ -3,6 +3,7 @@ import { Response } from 'express';
 // تم استيراد Prisma أيضاً للاستخدام مع Decimal
 import { PrismaClient, Prisma } from '@prisma/client'; 
 import { AuthRequest } from '../middleware/auth';
+import path from 'path';
 
 const prisma = new PrismaClient();
 
@@ -55,7 +56,7 @@ export const getAllTransactions = async (req: AuthRequest, res: Response) => {
     const transactionsWithUrl = transactions.map(tx => ({
       ...tx,
       receiptUrl: tx.receiptFilePath
-        ? `${req.protocol}://${req.get('host')}/uploads/${tx.receiptFilePath.split('/').pop()}`
+        ? `${req.protocol}://${req.get('host')}/uploads/receipts/${tx.receiptFilePath.split(/[/\\]/).pop()}`
         : null
     }));
 
@@ -97,6 +98,55 @@ export const getAllCurrencies = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch currencies'
+    });
+  }
+};
+
+// Get single transaction by ID for admin
+export const getTransactionById = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const transaction = await prisma.transaction.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phone: true
+          }
+        },
+        fromCurrency: true,
+        toCurrency: true
+      }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+
+    // Transform receiptFilePath to receiptUrl
+    const transactionWithUrl = {
+      ...transaction,
+      receiptUrl: transaction.receiptFilePath
+        ? `${req.protocol}://${req.get('host')}/uploads/receipts/${transaction.receiptFilePath.split(/[/\\]/).pop()}`
+        : null
+    };
+
+    res.json({
+      success: true,
+      data: transactionWithUrl
+    });
+  } catch (error) {
+    console.error('Get transaction by id error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch transaction'
     });
   }
 };
@@ -594,6 +644,177 @@ export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update user status'
+    });
+  }
+};
+
+// Get single user by ID with stats
+export const getUserById = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: parseInt(id) },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        country: true,
+        role: true,
+        isActive: true,
+        isVerified: true,
+        createdAt: true,
+        _count: {
+          select: {
+            transactions: true
+          }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Get user statistics
+    const [totalAmount, completedCount, rejectedCount, lastTransaction] = await Promise.all([
+      prisma.transaction.aggregate({
+        where: { userId: parseInt(id), status: 'COMPLETED' },
+        _sum: { amountSent: true }
+      }),
+      prisma.transaction.count({
+        where: { userId: parseInt(id), status: 'COMPLETED' }
+      }),
+      prisma.transaction.count({
+        where: { userId: parseInt(id), status: 'REJECTED' }
+      }),
+      prisma.transaction.findFirst({
+        where: { userId: parseInt(id) },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true }
+      })
+    ]);
+
+    const totalTransactions = user._count.transactions;
+    const rejectionRatio = totalTransactions > 0
+      ? Math.round((rejectedCount / totalTransactions) * 100)
+      : 0;
+
+    // Determine fraud risk based on rejection ratio
+    let fraudRisk: 'low' | 'medium' | 'high' = 'low';
+    if (rejectionRatio > 30) fraudRisk = 'high';
+    else if (rejectionRatio > 15) fraudRisk = 'medium';
+
+    // Get audit log for this user
+    const auditLog = await prisma.auditLog.findMany({
+      where: {
+        OR: [
+          { recordId: parseInt(id), tableName: 'users' },
+          { userId: parseInt(id) }
+        ]
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        action: true,
+        details: true,
+        createdAt: true,
+        user: {
+          select: { fullName: true, role: true }
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          ...user,
+          status: user.isActive ? 'active' : 'blocked',
+          kycStatus: user.isVerified ? 'verified' : 'pending',
+          tier: rejectionRatio > 30 ? 'high_risk' : totalTransactions > 50 ? 'vip' : 'regular'
+        },
+        stats: {
+          totalTransactions,
+          totalAmount: totalAmount._sum.amountSent || 0,
+          lastTransactionDate: lastTransaction?.createdAt || null,
+          rejectionRatio,
+          fraudRisk
+        },
+        auditLog: auditLog.map(log => ({
+          id: log.id.toString(),
+          action: log.action,
+          type: log.user?.role === 'ADMIN' ? 'admin' : 'user',
+          timestamp: log.createdAt.toISOString(),
+          details: typeof log.details === 'object' ? JSON.stringify(log.details) : log.details
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Get user by id error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user'
+    });
+  }
+};
+
+// Get user's transactions
+export const getUserTransactions = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { page = 1, limit = 10, sortField = 'createdAt', sortOrder = 'desc' } = req.query;
+
+    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+    const orderBy: any = {};
+    orderBy[sortField as string] = sortOrder;
+
+    const [transactions, total] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { userId: parseInt(id) },
+        include: {
+          fromCurrency: { select: { code: true } },
+          toCurrency: { select: { code: true } }
+        },
+        orderBy,
+        skip,
+        take: parseInt(limit as string)
+      }),
+      prisma.transaction.count({ where: { userId: parseInt(id) } })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        transactions: transactions.map(tx => ({
+          id: tx.id.toString(),
+          transactionRef: tx.transactionRef,
+          amountSent: Number(tx.amountSent),
+          amountReceived: Number(tx.amountReceived),
+          fromCurrency: tx.fromCurrency?.code || 'SDG',
+          toCurrency: tx.toCurrency?.code || 'INR',
+          status: tx.status,
+          createdAt: tx.createdAt.toISOString()
+        })),
+        pagination: {
+          total,
+          page: parseInt(page as string),
+          limit: parseInt(limit as string),
+          totalPages: Math.ceil(total / parseInt(limit as string))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get user transactions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user transactions'
     });
   }
 };

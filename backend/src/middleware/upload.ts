@@ -3,10 +3,15 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 
-// Create uploads directory if not exists
+// Create uploads directories if not exist
 const uploadsDir = path.join(__dirname, '../../uploads/receipts');
+const kycUploadsDir = path.join(__dirname, '../../uploads/kyc');
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+}
+if (!fs.existsSync(kycUploadsDir)) {
+  fs.mkdirSync(kycUploadsDir, { recursive: true });
 }
 
 // Storage configuration
@@ -84,3 +89,28 @@ export const deleteFile = (filePath: string) => {
     return false;
   }
 };
+
+// KYC document storage
+const kycStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, kycUploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, `kyc-${uniqueSuffix}${ext}`);
+  }
+});
+
+// KYC upload middleware - multiple files
+export const uploadKycDocuments = multer({
+  storage: kycStorage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  }
+}).fields([
+  { name: 'idFront', maxCount: 1 },
+  { name: 'idBack', maxCount: 1 },
+  { name: 'selfie', maxCount: 1 }
+]);

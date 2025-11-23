@@ -2,38 +2,88 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  LayoutDashboard, Users, DollarSign, Activity, Clock, 
-  CheckCircle2, XCircle, AlertCircle, Search, 
-  LogOut, Menu, X as CloseIcon, Eye, Check, Ban, FileText
+import {
+  LayoutDashboard, Users, DollarSign, Activity, Clock,
+  CheckCircle2, AlertCircle, LogOut, Menu, Bell, ChevronDown, Search,
+  Eye, ArrowUpRight, ArrowDownRight, Receipt, Settings, HelpCircle
 } from 'lucide-react';
 import { adminAPI, authAPI } from '@/lib/api';
+import {
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar
+} from 'recharts';
+
+// Types
+interface Transaction {
+  id: string;
+  transactionRef: string;
+  status: string;
+  amountSent: number;
+  amountReceived: number;
+  fromCurrency: { code: string };
+  toCurrency: { code: string };
+  createdAt: string;
+  user: { fullName: string; email: string };
+  receiptUrl?: string;
+}
+
+interface Stats {
+  totalTransactions: number;
+  underReviewCount: number;
+  completedCount: number;
+  totalUsers: number;
+  todayTransactions?: number;
+  todayVolume?: number;
+  pendingReceipts?: number;
+}
 
 // Helper to format currency
-const formatCurrency = (amount, currency = 'SDG') => {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 0 }).format(amount);
+const formatCurrency = (amount: number, currency = 'SDG') => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(amount);
 };
+
+// Format date
+const formatDate = (date: string) => {
+  return new Date(date).toLocaleDateString('ar-SA', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+// Mock chart data (replace with real data from API)
+const chartData = [
+  { name: 'السبت', transactions: 12, volume: 45000 },
+  { name: 'الأحد', transactions: 19, volume: 72000 },
+  { name: 'الإثنين', transactions: 15, volume: 58000 },
+  { name: 'الثلاثاء', transactions: 22, volume: 89000 },
+  { name: 'الأربعاء', transactions: 28, volume: 110000 },
+  { name: 'الخميس', transactions: 35, volume: 145000 },
+  { name: 'الجمعة', transactions: 42, volume: 168000 },
+];
 
 const AdminDashboardPage = () => {
   const router = useRouter();
   const [showSidebar, setShowSidebar] = useState(true);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // Data states
-  const [stats, setStats] = useState(null);
-  const [transactions, setTransactions] = useState([]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
   const [loadingTxs, setLoadingTxs] = useState(true);
   const [error, setError] = useState('');
 
-  // Modal states
-  const [selectedTx, setSelectedTx] = useState(null);
-  const [showModal, setShowModal] = useState(false);
-
-  // Filtering and Pagination
+  // Filtering
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
 
   const fetchDashboardStats = useCallback(async () => {
     try {
@@ -51,21 +101,21 @@ const AdminDashboardPage = () => {
     try {
       setLoadingTxs(true);
       const params = {
-        page,
+        page: 1,
+        limit: 10,
         status: statusFilter === 'all' ? undefined : statusFilter,
         search: searchTerm || undefined,
       };
       const response = await adminAPI.getAllTransactions(params);
       if (response.success) {
         setTransactions(response.data.transactions);
-        setTotalPages(response.data.totalPages);
       }
     } catch {
       setError('فشل تحميل المعاملات.');
     } finally {
       setLoadingTxs(false);
     }
-  }, [page, statusFilter, searchTerm]);
+  }, [statusFilter, searchTerm]);
 
   useEffect(() => { fetchDashboardStats(); }, [fetchDashboardStats]);
 
@@ -74,165 +124,366 @@ const AdminDashboardPage = () => {
     return () => clearTimeout(debounce);
   }, [fetchTransactions]);
 
-  const handleAction = async (action, txId, data = {}) => {
-    try {
-      let response;
-      switch (action) {
-        case 'approve':
-          response = await adminAPI.approveTransaction(txId, data);
-          break;
-        case 'reject':
-          response = await adminAPI.rejectTransaction(txId, data);
-          break;
-        case 'complete':
-          response = await adminAPI.completeTransaction(txId, data);
-          break;
-        default:
-          return;
-      }
-      if (response.success) {
-        fetchTransactions();
-        fetchDashboardStats();
-        setShowModal(false);
-      } else alert(`فشل الإجراء: ${response.message}`);
-    } catch {
-      alert('حدث خطأ أثناء تنفيذ الإجراء.');
-    }
-  };
-
-  const getStatusConfig = (status) => {
-    const configs = {
-      UNDER_REVIEW: { text: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', icon: Clock, label: 'قيد المراجعة' },
-      APPROVED: { text: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200', icon: CheckCircle2, label: 'موافق عليها' },
-      COMPLETED: { text: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', icon: CheckCircle2, label: 'مكتملة' },
-      REJECTED: { text: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200', icon: XCircle, label: 'مرفوضة' },
-      PENDING: { text: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', icon: AlertCircle, label: 'قيد الانتظار' }
+  const getStatusConfig = (status: string) => {
+    const configs: Record<string, { text: string; bg: string; label: string }> = {
+      PENDING: { text: 'text-orange-700', bg: 'bg-orange-50 border-orange-200', label: 'بانتظار الإيصال' },
+      UNDER_REVIEW: { text: 'text-amber-700', bg: 'bg-amber-50 border-amber-200', label: 'قيد المراجعة' },
+      APPROVED: { text: 'text-blue-700', bg: 'bg-blue-50 border-blue-200', label: 'جاري المعالجة' },
+      COMPLETED: { text: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', label: 'مكتملة' },
+      REJECTED: { text: 'text-rose-700', bg: 'bg-rose-50 border-rose-200', label: 'مرفوضة' }
     };
     return configs[status] || configs.PENDING;
   };
 
-  const StatCard = ({ title, value, icon, color }) => {
-    const Icon = icon;
-    return (
-      <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl p-6 text-white shadow-lg">
-        <div className="mb-4">
-          <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-            <Icon className="w-6 h-6" />
-          </div>
+  // Stat Card Component
+  const StatCard = ({ title, value, change, changeType, icon: Icon, color }: {
+    title: string;
+    value: string | number;
+    change?: string;
+    changeType?: 'up' | 'down';
+    icon: React.ElementType;
+    color: string;
+  }) => (
+    <div className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow">
+      <div className="flex items-center justify-between mb-4">
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
+          <Icon className="w-5 h-5 text-white" />
         </div>
-        <p className="text-white/80 text-sm">{title}</p>
-        <p className="text-4xl font-bold">{value}</p>
+        {change && (
+          <div className={`flex items-center gap-1 text-sm ${changeType === 'up' ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {changeType === 'up' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+            {change}
+          </div>
+        )}
       </div>
-    );
-  };
+      <p className="text-sm text-slate-500 mb-1">{title}</p>
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
+    </div>
+  );
+
+  // Notification Item
+  const notifications = [
+    { id: 1, type: 'new', message: 'معاملة جديدة بانتظار المراجعة', time: 'منذ 5 دقائق' },
+    { id: 2, type: 'receipt', message: 'تم رفع إيصال للمعاملة TXN-2024-001', time: 'منذ 15 دقيقة' },
+    { id: 3, type: 'alert', message: 'معاملة مرفوضة تحتاج مراجعة', time: 'منذ ساعة' },
+  ];
 
   return (
     <div className="min-h-screen bg-slate-50" dir="rtl">
-
       {/* Sidebar */}
-      <aside className={`fixed right-0 top-0 h-full bg-white border-l transition-all ${showSidebar ? "w-72" : "w-0"} overflow-hidden`}>
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-xl flex items-center justify-center">
-              <DollarSign className="w-6 h-6 text-white" />
+      <aside className={`fixed right-0 top-0 h-full bg-white border-l border-slate-200 transition-all z-40 ${showSidebar ? 'w-64' : 'w-0'} overflow-hidden`}>
+        <div className="p-5 h-full flex flex-col">
+          {/* Logo */}
+          <div className="flex items-center gap-3 mb-8 pb-6 border-b border-slate-100">
+            <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="font-bold text-lg">لوحة تحكم راصد</h2>
-              <p className="text-xs text-slate-500">نظام راصد</p>
+              <h2 className="font-bold text-slate-900">راصد</h2>
+              <p className="text-xs text-slate-500">لوحة التحكم</p>
             </div>
           </div>
 
-          <nav className="space-y-2">
-            <button onClick={() => router.push("/admin")} className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 text-indigo-700 rounded-xl">
-              <LayoutDashboard className="w-5 h-5" /> لوحة التحكم
+          {/* Navigation */}
+          <nav className="flex-1 space-y-1">
+            <button
+              onClick={() => router.push('/admin')}
+              className="w-full flex items-center gap-3 px-3 py-2.5 bg-indigo-50 text-indigo-700 rounded-lg font-medium text-sm"
+            >
+              <LayoutDashboard className="w-4 h-4" /> الرئيسية
             </button>
-
-            <button onClick={() => router.push("/admin/users")} className="w-full flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-slate-50 rounded-xl">
-              <Users className="w-5 h-5" /> إدارة المستخدمين
+            <button
+              onClick={() => router.push('/admin/transactions')}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm"
+            >
+              <Receipt className="w-4 h-4" /> المعاملات
+            </button>
+            <button
+              onClick={() => router.push('/admin/users')}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm"
+            >
+              <Users className="w-4 h-4" /> المستخدمين
+            </button>
+            <button
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm"
+            >
+              <Settings className="w-4 h-4" /> الإعدادات
             </button>
           </nav>
 
-          <div className="absolute bottom-6 left-6 right-6">
-            <button onClick={() => { authAPI.logout(); router.push("/login"); }} className="w-full flex items-center gap-3 px-4 py-3 text-rose-600 hover:bg-rose-50 rounded-xl">
-              <LogOut className="w-5 h-5" /> تسجيل الخروج
+          {/* Bottom Actions */}
+          <div className="pt-4 border-t border-slate-100 space-y-1">
+            <button className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
+              <HelpCircle className="w-4 h-4" /> المساعدة
+            </button>
+            <button
+              onClick={() => { authAPI.logout(); router.push('/login'); }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-rose-600 hover:bg-rose-50 rounded-lg text-sm"
+            >
+              <LogOut className="w-4 h-4" /> تسجيل الخروج
             </button>
           </div>
         </div>
       </aside>
 
-      {/* Main */}
-      <main className={`${showSidebar ? "mr-72" : "mr-0"} transition-all`}>
+      {/* Main Content */}
+      <main className={`${showSidebar ? 'mr-64' : 'mr-0'} transition-all min-h-screen`}>
+        {/* Header */}
+        <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setShowSidebar(!showSidebar)}
+                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <Menu className="w-5 h-5 text-slate-600" />
+              </button>
+              <div>
+                <h1 className="text-lg font-semibold text-slate-900">لوحة التحكم</h1>
+                <p className="text-sm text-slate-500">مرحباً بك في نظام راصد</p>
+              </div>
+            </div>
 
-        <header className="bg-white border-b px-6 py-4 flex justify-between">
-          <button onClick={() => setShowSidebar(!showSidebar)} className="w-10 h-10 flex items-center justify-center">
-            <Menu className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold">مرحباً، المدير</h1>
-            <p className="text-sm text-slate-500">إليك ملخص اليوم</p>
+            <div className="flex items-center gap-3">
+              {/* Notifications */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors relative"
+                >
+                  <Bell className="w-5 h-5 text-slate-600" />
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>
+                </button>
+
+                {showNotifications && (
+                  <div className="absolute left-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden z-50">
+                    <div className="p-4 border-b border-slate-100">
+                      <h3 className="font-semibold text-slate-900">الإشعارات</h3>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto">
+                      {notifications.map(notif => (
+                        <div key={notif.id} className="p-4 hover:bg-slate-50 border-b border-slate-50 cursor-pointer">
+                          <p className="text-sm text-slate-700">{notif.message}</p>
+                          <p className="text-xs text-slate-400 mt-1">{notif.time}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-3 bg-slate-50">
+                      <button className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
+                        عرض جميع الإشعارات
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Profile */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 cursor-pointer">
+                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                  <span className="text-sm font-medium text-indigo-600">م</span>
+                </div>
+                <span className="text-sm font-medium text-slate-700">المدير</span>
+                <ChevronDown className="w-4 h-4 text-slate-400" />
+              </div>
+            </div>
           </div>
         </header>
 
+        {/* Dashboard Content */}
         <div className="p-6 space-y-6">
-
-          {/* Stats */}
-          {loadingStats ? <p>جاري تحميل...</p> : stats &&
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <StatCard title="إجمالي المعاملات" value={stats.totalTransactions} icon={Activity} />
-              <StatCard title="قيد المراجعة" value={stats.underReviewCount} icon={Clock} />
-              <StatCard title="مكتملة" value={stats.completedCount} icon={CheckCircle2} />
-              <StatCard title="المستخدمين" value={stats.totalUsers} icon={Users} />
+          {/* Stats Grid */}
+          {loadingStats ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="bg-white rounded-xl border border-slate-200 p-6 animate-pulse">
+                  <div className="w-10 h-10 bg-slate-200 rounded-lg mb-4"></div>
+                  <div className="h-4 bg-slate-200 rounded w-20 mb-2"></div>
+                  <div className="h-6 bg-slate-200 rounded w-16"></div>
+                </div>
+              ))}
             </div>
-          }
-
-          {/* Transactions */}
-          <div className="bg-white border rounded-2xl p-6">
-            <h3 className="text-xl font-bold mb-4">المعاملات الأخيرة</h3>
-
-            <div className="mb-4 flex gap-4">
-              <input
-                placeholder="بحث..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="border p-3 rounded-lg w-64"
+          ) : stats && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard
+                title="معاملات اليوم"
+                value={stats.todayTransactions || stats.totalTransactions}
+                change="+12%"
+                changeType="up"
+                icon={Activity}
+                color="bg-indigo-600"
               />
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border p-3 rounded-lg">
-                <option value="all">جميع الحالات</option>
-                <option value="UNDER_REVIEW">قيد المراجعة</option>
-                <option value="APPROVED">موافق عليها</option>
-                <option value="COMPLETED">مكتملة</option>
-                <option value="REJECTED">مرفوضة</option>
-              </select>
+              <StatCard
+                title="بانتظار المراجعة"
+                value={stats.underReviewCount}
+                icon={Clock}
+                color="bg-amber-500"
+              />
+              <StatCard
+                title="مكتملة"
+                value={stats.completedCount}
+                change="+8%"
+                changeType="up"
+                icon={CheckCircle2}
+                color="bg-emerald-500"
+              />
+              <StatCard
+                title="إجمالي المستخدمين"
+                value={stats.totalUsers}
+                change="+3%"
+                changeType="up"
+                icon={Users}
+                color="bg-violet-500"
+              />
+            </div>
+          )}
+
+          {/* Charts Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Main Chart */}
+            <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-semibold text-slate-900">حجم التحويلات</h3>
+                  <p className="text-sm text-slate-500">آخر 7 أيام</p>
+                </div>
+                <select className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option>هذا الأسبوع</option>
+                  <option>هذا الشهر</option>
+                  <option>آخر 3 أشهر</option>
+                </select>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
+                    <YAxis stroke="#94a3b8" fontSize={12} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '12px'
+                      }}
+                    />
+                    <Bar dataKey="volume" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Quick Actions & Alerts */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6">
+              <h3 className="font-semibold text-slate-900 mb-4">تنبيهات عاجلة</h3>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                  <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-amber-800">{stats?.underReviewCount || 0} معاملات</p>
+                    <p className="text-xs text-amber-600">بانتظار المراجعة</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-lg border border-orange-100">
+                  <Receipt className="w-5 h-5 text-orange-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-orange-800">{stats?.pendingReceipts || 3} إيصالات</p>
+                    <p className="text-xs text-orange-600">بانتظار التحقق</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => router.push('/admin/transactions')}
+                  className="w-full mt-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                >
+                  عرض جميع المعاملات
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Transactions */}
+          <div className="bg-white rounded-xl border border-slate-200">
+            <div className="p-6 border-b border-slate-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-slate-900">آخر المعاملات</h3>
+                  <p className="text-sm text-slate-500">أحدث 10 معاملات في النظام</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="بحث..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-3 pr-9 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48"
+                    />
+                  </div>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="all">جميع الحالات</option>
+                    <option value="PENDING">بانتظار الإيصال</option>
+                    <option value="UNDER_REVIEW">قيد المراجعة</option>
+                    <option value="APPROVED">جاري المعالجة</option>
+                    <option value="COMPLETED">مكتملة</option>
+                    <option value="REJECTED">مرفوضة</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
-              {loadingTxs ? <p>جاري التحميل...</p> :
+              {loadingTxs ? (
+                <div className="p-8 text-center text-slate-500">جاري التحميل...</div>
+              ) : (
                 <table className="w-full">
-                  <thead><tr>
-                    <th>المعاملة</th>
-                    <th>المستخدم</th>
-                    <th>المبلغ</th>
-                    <th>الحالة</th>
-                    <th>الإجراءات</th>
-                  </tr></thead>
-
-                  <tbody>
+                  <thead>
+                    <tr className="bg-slate-50">
+                      <th className="text-right px-6 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">المرجع</th>
+                      <th className="text-right px-6 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">العميل</th>
+                      <th className="text-right px-6 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">التاريخ</th>
+                      <th className="text-right px-6 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">المبلغ</th>
+                      <th className="text-right px-6 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">الحالة</th>
+                      <th className="text-right px-6 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">الإجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
                     {transactions.map(tx => {
                       const cfg = getStatusConfig(tx.status);
-                      const Icon = cfg.icon;
                       return (
-                        <tr key={tx.id} className="border-t">
-                          <td>{tx.transactionRef}</td>
-                          <td>{tx.user.fullName}</td>
-                          <td>{formatCurrency(tx.amountSent)}</td>
-                          <td>
-                            <span className={`px-3 py-1 rounded-xl border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
-                              <Icon className="inline w-4 h-4" /> {cfg.label}
+                        <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <span className="font-mono text-sm text-slate-900">{tx.transactionRef}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div>
+                              <p className="text-sm font-medium text-slate-900">{tx.user.fullName}</p>
+                              <p className="text-xs text-slate-500">{tx.user.email}</p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm text-slate-600">{formatDate(tx.createdAt)}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div>
+                              <p className="text-sm font-medium text-slate-900">{formatCurrency(tx.amountSent, 'SDG')}</p>
+                              <p className="text-xs text-slate-500">← {tx.amountReceived} {tx.toCurrency?.code}</p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.text}`}>
+                              {cfg.label}
                             </span>
                           </td>
-                          <td>
-                            <button onClick={() => { setSelectedTx(tx); setShowModal(true); }}>
-                              <Eye className="w-5 h-5" />
+                          <td className="px-6 py-4">
+                            <button
+                              onClick={() => router.push(`/admin/transactions/${tx.id}`)}
+                              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                              <Eye className="w-4 h-4 text-slate-600" />
                             </button>
                           </td>
                         </tr>
@@ -240,27 +491,20 @@ const AdminDashboardPage = () => {
                     })}
                   </tbody>
                 </table>
-              }
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100">
+              <button
+                onClick={() => router.push('/admin/transactions')}
+                className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+              >
+                عرض جميع المعاملات ←
+              </button>
             </div>
           </div>
         </div>
       </main>
-
-      {/* Modal */}
-      {showModal && selectedTx &&
-        <div className="fixed inset-0 bg-black/40 flex justify-center items-center">
-          <div className="bg-white rounded-2xl p-6 max-w-xl w-full">
-            <h2 className="text-xl font-bold mb-4">تفاصيل المعاملة</h2>
-
-            <p><b>المرجع:</b> {selectedTx.transactionRef}</p>
-            <p><b>الاسم:</b> {selectedTx.user.fullName}</p>
-
-            <div className="mt-4 text-right">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 bg-slate-200 rounded-lg">إغلاق</button>
-            </div>
-          </div>
-        </div>
-      }
     </div>
   );
 };

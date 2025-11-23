@@ -4,9 +4,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import prisma from './lib/prisma';
 import { verifyToken, isAdmin } from './middleware/auth';
-import { uploadReceipt, handleUploadError } from './middleware/upload';
+import { uploadReceipt, uploadKycDocuments, handleUploadError } from './middleware/upload';
 import * as transactionController from './controllers/transactionController';
 import * as adminController from './controllers/adminController';
 import * as userController from './controllers/userController';
@@ -17,11 +17,12 @@ import path from 'path';
 dotenv.config();
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
@@ -53,9 +54,10 @@ app.post('/api/transactions/:id/cancel', verifyToken, transactionController.canc
 // ==================== ADMIN ROUTES ====================
 
 app.get('/api/admin/transactions', verifyToken, isAdmin, adminController.getAllTransactions);
+app.get('/api/admin/transactions/:id', verifyToken, isAdmin, adminController.getTransactionById);
 
 // 🛑 المسار المضاف لجلب العملات
-app.get('/api/admin/currencies', verifyToken, isAdmin, adminController.getAllCurrencies); 
+app.get('/api/admin/currencies', verifyToken, isAdmin, adminController.getAllCurrencies);
 
 app.post('/api/admin/transactions/:id/approve', verifyToken, isAdmin, adminController.approveTransaction);
 app.post('/api/admin/transactions/:id/reject', verifyToken, isAdmin, adminController.rejectTransaction);
@@ -65,6 +67,8 @@ app.post('/api/admin/exchange-rates', verifyToken, isAdmin, adminController.upda
 
 // Admin User Management Routes
 app.get('/api/admin/users', verifyToken, isAdmin, adminController.getAllUsers);
+app.get('/api/admin/users/:id', verifyToken, isAdmin, adminController.getUserById);
+app.get('/api/admin/users/:id/transactions', verifyToken, isAdmin, adminController.getUserTransactions);
 app.put('/api/admin/users/:id/status', verifyToken, isAdmin, adminController.toggleUserStatus);
 
 // ==================== NOTIFICATIONS ====================

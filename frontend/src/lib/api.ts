@@ -18,6 +18,10 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Don't override Content-Type for FormData (let browser set it with boundary)
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
     return config;
   },
   (error) => {
@@ -30,9 +34,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Don't redirect during registration flow
+      const isRegistrationRoute = window.location.pathname.startsWith('/register');
+      if (!isRegistrationRoute) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
@@ -41,18 +49,60 @@ api.interceptors.response.use(
 // ==================== AUTH API ====================
 
 export const authAPI = {
+  // Step 1: Register with email/password
   register: async (data: {
     fullName: string;
     email: string;
-    phone: string;
     password: string;
-    country: string;
   }) => {
     const response = await api.post('/auth/register', data);
     if (response.data.success) {
       localStorage.setItem('token', response.data.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.data.user));
     }
+    return response.data;
+  },
+
+  // Step 1B: Verify registration OTP
+  verifyRegistrationOtp: async (email: string, otp: string) => {
+    const response = await api.post('/auth/verify-registration-otp', { email, otp });
+    if (response.data.success) {
+      localStorage.setItem('token', response.data.data.token);
+    }
+    return response.data;
+  },
+
+  // Resend OTP during registration
+  resendOtp: async (email: string) => {
+    const response = await api.post('/auth/resend-otp', { email });
+    return response.data;
+  },
+
+  // Step 2: Update profile
+  updateProfile: async (data: {
+    phone: string;
+    country: string;
+    city: string;
+    dateOfBirth: string;
+    nationality: string;
+  }) => {
+    const response = await api.put('/auth/profile', data);
+    return response.data;
+  },
+
+  // Step 3: Upload KYC documents
+  uploadKycDocuments: async (files: {
+    idFront: File;
+    idBack: File;
+    selfie: File;
+  }) => {
+    const formData = new FormData();
+    formData.append('idFront', files.idFront);
+    formData.append('idBack', files.idBack);
+    formData.append('selfie', files.selfie);
+
+    // Don't set Content-Type manually - let axios set it with boundary
+    const response = await api.post('/auth/kyc-upload', formData);
     return response.data;
   },
 
@@ -168,8 +218,15 @@ export const adminAPI = {
     search?: string;
     page?: number;
     limit?: number;
+    dateFrom?: string;
+    dateTo?: string;
   }) => {
     const response = await api.get('/admin/transactions', { params });
+    return response.data;
+  },
+
+  getTransactionById: async (id: string) => {
+    const response = await api.get(`/admin/transactions/${id}`);
     return response.data;
   },
 
@@ -222,6 +279,21 @@ export const adminAPI = {
 
   toggleUserStatus: async (userId: number, isActive: boolean) => {
     const response = await api.put(`/admin/users/${userId}/status`, { isActive });
+    return response.data;
+  },
+
+  getUserById: async (userId: string) => {
+    const response = await api.get(`/admin/users/${userId}`);
+    return response.data;
+  },
+
+  getUserTransactions: async (userId: string, params?: {
+    page?: number;
+    limit?: number;
+    sortField?: string;
+    sortOrder?: string;
+  }) => {
+    const response = await api.get(`/admin/users/${userId}/transactions`, { params });
     return response.data;
   }
 };

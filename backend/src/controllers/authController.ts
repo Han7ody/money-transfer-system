@@ -1,11 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../lib/prisma';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { AuthRequest } from '../middleware/auth';
 import { sendVerificationOtpEmail, sendPasswordResetEmail } from '../utils/email';
-
-const prisma = new PrismaClient();
 
 // Change Password for logged-in user
 export const changePassword = async (req: AuthRequest, res: Response) => {
@@ -142,5 +140,84 @@ export const resetPassword = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Reset password error:', error);
     res.status(500).json({ success: false, message: 'Failed to reset password.' });
+  }
+};
+
+// KYC Upload - Step 3
+export const uploadKycDocuments = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+
+    if (!files || !files.idFront?.[0] || !files.idBack?.[0] || !files.selfie?.[0]) {
+      return res.status(400).json({
+        success: false,
+        message: 'All documents are required (idFront, idBack, selfie)'
+      });
+    }
+
+    // Delete existing KYC documents for resubmission
+    await prisma.kycDocument.deleteMany({
+      where: { userId }
+    });
+
+    // Create new KYC documents
+    await prisma.$transaction([
+      prisma.kycDocument.create({
+        data: {
+          userId,
+          type: 'id_front',
+          filePath: files.idFront[0].filename,
+          status: 'pending'
+        }
+      }),
+      prisma.kycDocument.create({
+        data: {
+          userId,
+          type: 'id_back',
+          filePath: files.idBack[0].filename,
+          status: 'pending'
+        }
+      }),
+      prisma.kycDocument.create({
+        data: {
+          userId,
+          type: 'selfie',
+          filePath: files.selfie[0].filename,
+          status: 'pending'
+        }
+      })
+    ]);
+
+    // Update user KYC status
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        kycStatus: 'PENDING',
+        kycSubmittedAt: new Date()
+      }
+    });
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'KYC documents submitted',
+        tableName: 'kyc_documents',
+        details: { documentCount: 3 }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'KYC documents uploaded successfully',
+      data: { kycStatus: 'PENDING' }
+    });
+  } catch (error) {
+    console.error('KYC upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to upload KYC documents'
+    });
   }
 };

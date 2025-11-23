@@ -2,17 +2,89 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { transactionAPI, authAPI } from '@/lib/api';
-import { ArrowUpRight, Clock, CheckCircle2, XCircle, TrendingUp, Users, DollarSign, Bell, Search, Eye, Loader, LogOut, User as UserIcon } from 'lucide-react';
+import { ArrowUpRight, Clock, CheckCircle2, XCircle, DollarSign, Bell, Eye, Loader, LogOut, User as UserIcon, Shield, X } from 'lucide-react';
+import Link from 'next/link';
 
-const getStatusBadge = (status) => {
-  const statusConfig = {
+// KYC Status Banner Component
+const KYCStatusBanner = ({ status, onDismiss }: { status: string; onDismiss?: () => void }) => {
+  if (status === 'approved') return null;
+
+  const config = {
+    pending: {
+      icon: Clock,
+      title: 'التحقق قيد المراجعة',
+      message: 'نقوم بمراجعة وثائقك. سيتم إشعارك عند الانتهاء.',
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      iconBg: 'bg-amber-100',
+      iconColor: 'text-amber-600',
+      textColor: 'text-amber-800'
+    },
+    rejected: {
+      icon: XCircle,
+      title: 'تم رفض التحقق',
+      message: 'يرجى إعادة تقديم وثائقك.',
+      bg: 'bg-rose-50',
+      border: 'border-rose-200',
+      iconBg: 'bg-rose-100',
+      iconColor: 'text-rose-600',
+      textColor: 'text-rose-800',
+      action: { label: 'إعادة التقديم', href: '/register/kyc' }
+    },
+    not_submitted: {
+      icon: Shield,
+      title: 'أكمل التحقق من هويتك',
+      message: 'يجب التحقق من هويتك لإجراء التحويلات.',
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
+      iconBg: 'bg-blue-100',
+      iconColor: 'text-blue-600',
+      textColor: 'text-blue-800',
+      action: { label: 'بدء التحقق', href: '/register/kyc' }
+    }
+  };
+
+  const currentConfig = config[status as keyof typeof config] || config.not_submitted;
+  const Icon = currentConfig.icon;
+
+  return (
+    <div className={`${currentConfig.bg} border ${currentConfig.border} rounded-xl p-4 mb-6`}>
+      <div className="flex items-start gap-3">
+        <div className={`${currentConfig.iconBg} p-2 rounded-lg flex-shrink-0`}>
+          <Icon className={`w-5 h-5 ${currentConfig.iconColor}`} />
+        </div>
+        <div className="flex-1">
+          <h4 className={`font-semibold ${currentConfig.textColor}`}>{currentConfig.title}</h4>
+          <p className={`text-sm ${currentConfig.textColor} opacity-80 mt-0.5`}>{currentConfig.message}</p>
+          {'action' in currentConfig && currentConfig.action && (
+            <Link
+              href={currentConfig.action.href}
+              className={`inline-flex items-center gap-1 text-sm font-medium mt-2 ${currentConfig.iconColor} hover:underline`}
+            >
+              {currentConfig.action.label}
+              <ArrowUpRight className="w-3 h-3" />
+            </Link>
+          )}
+        </div>
+        {onDismiss && (
+          <button onClick={onDismiss} className="p-1 hover:bg-black/5 rounded">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const getStatusBadge = (status: string) => {
+  const statusConfig: Record<string, { bg: string; text: string; label: string; icon: React.ElementType }> = {
     'COMPLETED': { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'مكتمل', icon: CheckCircle2 },
     'PENDING': { bg: 'bg-amber-50', text: 'text-amber-700', label: 'في انتظار الدفع', icon: Clock },
     'UNDER_REVIEW': { bg: 'bg-blue-50', text: 'text-blue-700', label: 'قيد المراجعة', icon: Clock },
     'REJECTED': { bg: 'bg-rose-50', text: 'text-rose-700', label: 'مرفوض', icon: XCircle },
     'CANCELLED': { bg: 'bg-slate-50', text: 'text-slate-700', label: 'ملغي', icon: XCircle },
   };
-  
+
   const config = statusConfig[status] || statusConfig['PENDING'];
   const Icon = config.icon;
   
@@ -144,10 +216,15 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-8">
+        <div className="mb-6">
           <h2 className="text-3xl font-bold text-slate-900 mb-2">مرحباً بك مجدداً, {user?.fullName?.split(' ')[0]}! 👋</h2>
           <p className="text-slate-600">إليك ملخص معاملاتك اليوم</p>
         </div>
+
+        {/* KYC Status Banner - shows if KYC not approved */}
+        {user && user.kycStatus !== 'approved' && (
+          <KYCStatusBanner status={user.kycStatus || 'not_submitted'} />
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100"><p className="text-slate-600 text-sm font-medium mb-1">إجمالي التحويلات</p><p className="text-3xl font-bold text-slate-900">{stats.total}</p></div>
