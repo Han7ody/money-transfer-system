@@ -11,7 +11,7 @@ interface UserHeaderProps {
     email: string;
     phone: string;
     status: 'active' | 'blocked' | 'under_review';
-    kycStatus: 'verified' | 'pending' | 'rejected';
+    kycStatus: 'verified' | 'pending' | 'rejected' | null;
     tier: 'regular' | 'vip' | 'high_risk';
   };
 }
@@ -37,7 +37,7 @@ const tierConfig = {
 export const UserHeader: React.FC<UserHeaderProps> = ({ user }) => {
   const router = useRouter();
   const status = statusConfig[user.status];
-  const kyc = kycConfig[user.kycStatus];
+  const kyc = kycConfig[user.kycStatus as keyof typeof kycConfig] || { label: 'لم يقدم', bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' };
   const tier = tierConfig[user.tier];
 
   return (

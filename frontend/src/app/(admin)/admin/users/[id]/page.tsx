@@ -21,7 +21,7 @@ interface User {
   email: string;
   phone: string;
   status: 'active' | 'blocked' | 'under_review';
-  kycStatus: 'verified' | 'pending' | 'rejected';
+  kycStatus: 'verified' | 'pending' | 'rejected' | null;
   tier: 'regular' | 'vip' | 'high_risk';
 }
 
@@ -54,38 +54,14 @@ interface AuditItem {
 
 interface Document {
   id: string;
-  type: 'id_card' | 'address_proof' | 'selfie';
+  type: 'id_front' | 'id_back' | 'selfie';
   uploadDate: string;
   status: 'approved' | 'pending' | 'rejected';
   url: string;
   rejectionReason?: string;
 }
 
-// Mock KYC documents (KYC system not implemented yet)
-const mockDocuments: Document[] = [
-  {
-    id: '1',
-    type: 'id_card',
-    uploadDate: '2024-01-16T10:00:00Z',
-    status: 'approved',
-    url: '/placeholder-id.png'
-  },
-  {
-    id: '2',
-    type: 'address_proof',
-    uploadDate: '2024-01-16T10:30:00Z',
-    status: 'pending',
-    url: '/placeholder-address.png'
-  },
-  {
-    id: '3',
-    type: 'selfie',
-    uploadDate: '2024-01-16T11:00:00Z',
-    status: 'rejected',
-    url: '/placeholder-selfie.png',
-    rejectionReason: 'الصورة غير واضحة'
-  }
-];
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 const CustomerProfilePage = () => {
   const router = useRouter();
@@ -99,7 +75,7 @@ const CustomerProfilePage = () => {
   // Data states
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [documents, setDocuments] = useState<Document[]>(mockDocuments);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [auditLog, setAuditLog] = useState<AuditItem[]>([]);
 
@@ -118,7 +94,7 @@ const CustomerProfilePage = () => {
       const response = await adminAPI.getUserById(userId);
 
       if (response.success) {
-        const { user: userData, stats: userStats, auditLog: userAudit } = response.data;
+        const { user: userData, stats: userStats, auditLog: userAudit, kycDocuments } = response.data;
 
         setUser({
           id: userData.id.toString(),
@@ -137,6 +113,14 @@ const CustomerProfilePage = () => {
           rejectionRatio: userStats.rejectionRatio,
           fraudRisk: userStats.fraudRisk
         });
+
+        // Set KYC documents with full URL
+        if (kycDocuments && kycDocuments.length > 0) {
+          setDocuments(kycDocuments.map((doc: Document) => ({
+            ...doc,
+            url: doc.url.startsWith('http') ? doc.url : `${API_URL.replace('/api', '')}${doc.url}`
+          })));
+        }
 
         setAuditLog(userAudit || []);
       } else {
@@ -225,16 +209,42 @@ const CustomerProfilePage = () => {
     document.getElementById('kyc-section')?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleApproveDoc = (docId: string) => {
-    setDocuments(prev => prev.map(doc =>
-      doc.id === docId ? { ...doc, status: 'approved' as const } : doc
-    ));
+  const handleApproveDoc = async (docId: string) => {
+    try {
+      const response = await adminAPI.approveKycDocument(docId);
+      if (response.success) {
+        setDocuments(prev => prev.map(doc =>
+          doc.id === docId ? { ...doc, status: 'approved' as const } : doc
+        ));
+        // Refresh user data to get updated KYC status
+        if (response.data.kycFullyApproved) {
+          fetchUserData();
+        }
+      } else {
+        alert(response.message || 'فشل في الموافقة على الوثيقة');
+      }
+    } catch (err) {
+      console.error('Error approving document:', err);
+      alert('فشل في الموافقة على الوثيقة');
+    }
   };
 
-  const handleRejectDoc = (docId: string, reason: string) => {
-    setDocuments(prev => prev.map(doc =>
-      doc.id === docId ? { ...doc, status: 'rejected' as const, rejectionReason: reason } : doc
-    ));
+  const handleRejectDoc = async (docId: string, reason: string) => {
+    try {
+      const response = await adminAPI.rejectKycDocument(docId, reason);
+      if (response.success) {
+        setDocuments(prev => prev.map(doc =>
+          doc.id === docId ? { ...doc, status: 'rejected' as const, rejectionReason: reason } : doc
+        ));
+        // Refresh user data to get updated KYC status
+        fetchUserData();
+      } else {
+        alert(response.message || 'فشل في رفض الوثيقة');
+      }
+    } catch (err) {
+      console.error('Error rejecting document:', err);
+      alert('فشل في رفض الوثيقة');
+    }
   };
 
   const handleSort = (field: string) => {

@@ -6,7 +6,9 @@
       "Bash(npx next build)",
       "Bash(timeout 15 npm run dev:*)",
       "Bash(timeout 20 npm run dev:*)",
-      "Bash(npm cache clean:*)"
+      "Bash(npm cache clean:*)",
+      "Bash(dir c:money-transfer-systemfrontend*.config.* /b 2)",
+      "Bash(nul)"
     ],
     "deny": [],
     "ask": []

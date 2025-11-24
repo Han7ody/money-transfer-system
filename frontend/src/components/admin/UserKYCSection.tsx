@@ -5,7 +5,7 @@ import { FileText, Calendar, Eye, Check, X, ZoomIn } from 'lucide-react';
 
 interface Document {
   id: string;
-  type: 'id_card' | 'address_proof' | 'selfie';
+  type: 'id_front' | 'id_back' | 'selfie';
   uploadDate: string;
   status: 'approved' | 'pending' | 'rejected';
   url: string;
@@ -18,9 +18,9 @@ interface UserKYCSectionProps {
   onReject: (docId: string, reason: string) => void;
 }
 
-const docTypeLabels = {
-  id_card: 'بطاقة الهوية',
-  address_proof: 'إثبات العنوان',
+const docTypeLabels: Record<string, string> = {
+  id_front: 'الهوية (الأمام)',
+  id_back: 'الهوية (الخلف)',
   selfie: 'صورة شخصية'
 };
 

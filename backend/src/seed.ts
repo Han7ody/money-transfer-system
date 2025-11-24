@@ -101,6 +101,89 @@ async function main() {
   await prisma.$transaction(exchangeRatePromises);
   console.log(`Inserted ${exchangeRatesData.length} exchange rates.`);
 
+  // 4. Seed sample audit logs
+  const auditLogsData = [
+    {
+      adminId: admin.id,
+      action: 'ADMIN_LOGIN',
+      entity: 'Auth',
+      oldValue: null,
+      newValue: { email: admin.email },
+      ipAddress: '192.168.1.100',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000) // 6 hours ago
+    },
+    {
+      adminId: admin.id,
+      action: 'UPDATE_EXCHANGE_RATE',
+      entity: 'ExchangeRates',
+      entityId: '1',
+      oldValue: { fromCurrency: 'SDG', toCurrency: 'INR', rate: '0.12', adminFeePercent: '1.50' },
+      newValue: { fromCurrency: 'SDG', toCurrency: 'INR', rate: '0.14', adminFeePercent: '2.00' },
+      ipAddress: '192.168.1.100',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000) // 5 hours ago
+    },
+    {
+      adminId: admin.id,
+      action: 'APPROVE_KYC',
+      entity: 'User',
+      entityId: '2',
+      oldValue: { kycStatus: 'PENDING' },
+      newValue: { kycStatus: 'APPROVED' },
+      ipAddress: '192.168.1.100',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000) // 4 hours ago
+    },
+    {
+      adminId: admin.id,
+      action: 'UPDATE_GENERAL_SETTINGS',
+      entity: 'SystemSettings',
+      oldValue: { platformName: 'Rasid', supportEmail: 'old@rasid.com' },
+      newValue: { platformName: 'Rasid', supportEmail: 'support@rasid.com' },
+      ipAddress: '192.168.1.100',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000) // 3 hours ago
+    },
+    {
+      adminId: admin.id,
+      action: 'APPROVE_TRANSACTION',
+      entity: 'Transaction',
+      entityId: '1',
+      oldValue: { status: 'PENDING' },
+      newValue: { status: 'APPROVED' },
+      ipAddress: '192.168.1.100',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000) // 2 hours ago
+    },
+    {
+      adminId: admin.id,
+      action: 'CREATE_EXCHANGE_RATE',
+      entity: 'ExchangeRates',
+      entityId: '4',
+      oldValue: null,
+      newValue: { fromCurrency: 'EUR', toCurrency: 'SDG', rate: '1100.00', adminFeePercent: '1.50' },
+      ipAddress: '192.168.1.100',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000) // 1 hour ago
+    },
+    {
+      adminId: admin.id,
+      action: 'ADMIN_LOGOUT',
+      entity: 'Auth',
+      oldValue: null,
+      newValue: { email: admin.email },
+      ipAddress: '192.168.1.100',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      createdAt: new Date(Date.now() - 30 * 60 * 1000) // 30 minutes ago
+    }
+  ];
+
+  // Delete existing audit logs and insert new ones
+  await prisma.auditLog.deleteMany({});
+  await prisma.auditLog.createMany({ data: auditLogsData });
+  console.log(`Inserted ${auditLogsData.length} sample audit logs.`);
+
   console.log('Seeding finished.');
 }
 

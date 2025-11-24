@@ -12,6 +12,7 @@ import * as adminController from './controllers/adminController';
 import * as userController from './controllers/userController';
 import authRoutes from './routes/authRoutes';
 import path from 'path';
+import emailService from './services/emailService';
 
 
 dotenv.config();
@@ -24,7 +25,11 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: [
+    'http://localhost:3000',
+    'http://192.168.1.6:3000', // <-- أضف هذا السطر
+    process.env.FRONTEND_URL || ''
+  ],
   credentials: true
 }));
 app.use(express.json());
@@ -41,6 +46,77 @@ app.use('/api/auth', authRoutes);
 
 app.put('/api/users/me', verifyToken, userController.updateCurrentUser);
 app.put('/api/users/me/notification-settings', verifyToken, userController.updateNotificationSettings);
+
+// ==================== KYC ROUTES ====================
+
+app.post('/api/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+
+    if (!files || !files.idFront || !files.idBack || !files.selfie) {
+      console.log('Files received:', files);
+      return res.status(400).json({
+        success: false,
+        message: 'All documents are required (idFront, idBack, selfie)'
+      });
+    }
+
+    // Delete existing KYC documents
+    await prisma.kycDocument.deleteMany({
+      where: { userId }
+    });
+
+    // Save new KYC documents
+    const documents = await Promise.all([
+      prisma.kycDocument.create({
+        data: {
+          userId,
+          type: 'id_front',
+          filePath: files.idFront[0].filename
+        }
+      }),
+      prisma.kycDocument.create({
+        data: {
+          userId,
+          type: 'id_back',
+          filePath: files.idBack[0].filename
+        }
+      }),
+      prisma.kycDocument.create({
+        data: {
+          userId,
+          type: 'selfie',
+          filePath: files.selfie[0].filename
+        }
+      })
+    ]);
+
+    // Update user KYC status and get user data
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        kycStatus: 'PENDING',
+        kycSubmittedAt: new Date()
+      }
+    });
+
+    // Send KYC received email
+    await emailService.sendKycReceivedEmail(user.email, user.fullName);
+
+    res.json({
+      success: true,
+      message: 'KYC documents uploaded successfully',
+      data: { documents }
+    });
+  } catch (error: any) {
+    console.error('KYC upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to upload KYC documents'
+    });
+  }
+});
 
 // ==================== TRANSACTION ROUTES ====================
 
@@ -63,6 +139,7 @@ app.post('/api/admin/transactions/:id/approve', verifyToken, isAdmin, adminContr
 app.post('/api/admin/transactions/:id/reject', verifyToken, isAdmin, adminController.rejectTransaction);
 app.post('/api/admin/transactions/:id/complete', verifyToken, isAdmin, adminController.completeTransaction);
 app.get('/api/admin/dashboard/stats', verifyToken, isAdmin, adminController.getDashboardStats);
+app.get('/api/admin/exchange-rates', verifyToken, isAdmin, adminController.getExchangeRates);
 app.post('/api/admin/exchange-rates', verifyToken, isAdmin, adminController.updateExchangeRate);
 
 // Admin User Management Routes
@@ -70,6 +147,21 @@ app.get('/api/admin/users', verifyToken, isAdmin, adminController.getAllUsers);
 app.get('/api/admin/users/:id', verifyToken, isAdmin, adminController.getUserById);
 app.get('/api/admin/users/:id/transactions', verifyToken, isAdmin, adminController.getUserTransactions);
 app.put('/api/admin/users/:id/status', verifyToken, isAdmin, adminController.toggleUserStatus);
+
+// Admin KYC Management Routes
+app.post('/api/admin/kyc/:docId/approve', verifyToken, isAdmin, adminController.approveKycDocument);
+app.post('/api/admin/kyc/:docId/reject', verifyToken, isAdmin, adminController.rejectKycDocument);
+
+// Admin Notifications & Profile
+app.get('/api/admin/notifications', verifyToken, isAdmin, adminController.getAdminNotifications);
+app.post('/api/admin/notifications/:id/read', verifyToken, isAdmin, adminController.markNotificationAsRead);
+app.post('/api/admin/notifications/read-all', verifyToken, isAdmin, adminController.markAllNotificationsAsRead);
+app.get('/api/admin/profile', verifyToken, isAdmin, adminController.getAdminProfile);
+
+// Admin Audit Logs (note: /stats must come before /:id)
+app.get('/api/admin/audit-logs', verifyToken, isAdmin, adminController.getAuditLogs);
+app.get('/api/admin/audit-logs/stats', verifyToken, isAdmin, adminController.getAuditLogStats);
+app.get('/api/admin/audit-logs/:id', verifyToken, isAdmin, adminController.getAuditLogById);
 
 // ==================== NOTIFICATIONS ====================
 

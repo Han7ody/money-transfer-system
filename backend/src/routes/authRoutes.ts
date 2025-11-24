@@ -6,6 +6,7 @@ import prisma from '../lib/prisma';
 import bcrypt from 'bcrypt';
 import { generateToken } from '../middleware/auth';
 import { uploadKycDocuments, handleUploadError } from '../middleware/upload';
+import emailService from '../services/emailService';
 
 const router = express.Router();
 
@@ -46,7 +47,7 @@ router.post('/register', async (req, res) => {
       data: {
         fullName,
         email,
-        phone: '', // Will be set in profile step
+        // phone is intentionally omitted, will be set in profile step
         passwordHash,
         country: '', // Will be set in profile step
         role: 'USER',
@@ -56,8 +57,8 @@ router.post('/register', async (req, res) => {
       }
     });
 
-    // Send OTP email (in production)
-    // await sendVerificationOtpEmail(user.email, otp);
+    // Send OTP email
+    await emailService.sendVerificationEmail(user.email, user.fullName, otp);
     console.log(`OTP for ${email}: ${otp}`); // For development
 
     // Generate token
@@ -233,15 +234,14 @@ router.put('/profile', verifyToken, async (req: any, res) => {
       });
     }
 
-    // Check phone uniqueness (skip empty phones)
+    // Check phone uniqueness
     if (phone) {
       const existingPhone = await prisma.user.findFirst({
         where: {
           phone,
-          NOT: [
-            { id: userId },
-            { phone: '' }
-          ]
+          id: {
+            not: userId
+          }
         }
       });
 

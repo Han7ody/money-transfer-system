@@ -1,9 +1,11 @@
 // backend/src/controllers/adminController.ts
 import { Response } from 'express';
 // تم استيراد Prisma أيضاً للاستخدام مع Decimal
-import { PrismaClient, Prisma } from '@prisma/client'; 
+import { PrismaClient, Prisma } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import path from 'path';
+import emailService from '../services/emailService';
+import { logAdminAction, AuditActions, AuditEntities } from '../utils/auditLogger';
 
 const prisma = new PrismaClient();
 
@@ -375,6 +377,24 @@ export const completeTransaction = async (req: AuthRequest, res: Response) => {
       }
     });
 
+    // Get user and currency details for email
+    const user = await prisma.user.findUnique({ where: { id: transaction.userId } });
+    const fromCurrency = await prisma.currency.findUnique({ where: { id: transaction.fromCurrencyId } });
+    const toCurrency = await prisma.currency.findUnique({ where: { id: transaction.toCurrencyId } });
+
+    if (user) {
+      await emailService.sendTransactionCompletedEmail(user.email, {
+        name: user.fullName,
+        transaction_id: transaction.transactionRef,
+        amount_sent: transaction.amountSent.toString(),
+        from_currency: fromCurrency?.code || 'SDG',
+        amount_received: transaction.amountReceived.toString(),
+        to_currency: toCurrency?.code || 'USD',
+        recipient_name: transaction.recipientName,
+        completion_date: new Date().toLocaleDateString('ar-SA')
+      });
+    }
+
     res.json({
       success: true,
       message: 'Transaction marked as completed',
@@ -400,7 +420,8 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       completedCount,
       rejectedCount,
       totalUsers,
-      todayTransactions
+      todayTransactions,
+      pendingKycCount
     ] = await Promise.all([
       prisma.transaction.count(),
       prisma.transaction.count({ where: { status: 'PENDING' } }),
@@ -415,13 +436,46 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
             gte: new Date(new Date().setHours(0, 0, 0, 0))
           }
         }
-      })
+      }),
+      prisma.user.count({ where: { kycStatus: 'PENDING' } })
     ]);
 
     const totalVolume = await prisma.transaction.aggregate({
       where: { status: 'COMPLETED' },
       _sum: { amountSent: true, adminFee: true }
     });
+
+    // Get weekly chart data (last 7 days)
+    const weeklyData = [];
+    const dayNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+
+      const [dayTransactions, dayVolume] = await Promise.all([
+        prisma.transaction.count({
+          where: {
+            createdAt: { gte: startOfDay, lte: endOfDay }
+          }
+        }),
+        prisma.transaction.aggregate({
+          where: {
+            createdAt: { gte: startOfDay, lte: endOfDay },
+            status: { in: ['COMPLETED', 'APPROVED', 'UNDER_REVIEW'] }
+          },
+          _sum: { amountSent: true }
+        })
+      ]);
+
+      weeklyData.push({
+        name: dayNames[startOfDay.getDay()],
+        transactions: dayTransactions,
+        volume: Number(dayVolume._sum.amountSent || 0)
+      });
+    }
 
     res.json({
       success: true,
@@ -434,10 +488,12 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
         rejectedCount,
         totalUsers,
         todayTransactions,
+        pendingKycCount,
         totalVolume: {
           amountSent: totalVolume._sum.amountSent || 0,
           adminFee: totalVolume._sum.adminFee || 0
-        }
+        },
+        weeklyChartData: weeklyData
       }
     });
   } catch (error) {
@@ -449,10 +505,62 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Update exchange rate (مع التعديلات النهائية لـ Decimal و updatedBy)
+// Get all exchange rates
+export const getExchangeRates = async (req: AuthRequest, res: Response) => {
+  try {
+    const rates = await prisma.exchangeRate.findMany({
+      include: {
+        fromCurrency: { select: { code: true, name: true } },
+        toCurrency: { select: { code: true, name: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    res.json({
+      success: true,
+      data: rates.map(rate => ({
+        id: rate.id,
+        fromCurrency: rate.fromCurrency.code,
+        toCurrency: rate.toCurrency.code,
+        rate: Number(rate.rate),
+        adminFeePercent: Number(rate.adminFeePercent),
+        updatedAt: rate.updatedAt.toISOString()
+      }))
+    });
+  } catch (error) {
+    console.error('Get exchange rates error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch exchange rates'
+    });
+  }
+};
+
+// Update exchange rate with password verification
 export const updateExchangeRate = async (req: AuthRequest, res: Response) => {
   try {
-    const { fromCurrencyCode, toCurrencyCode, rate, adminFeePercent } = req.body;
+    const { fromCurrency: fromCurrencyCode, toCurrency: toCurrencyCode, rate, adminFeePercent, password } = req.body;
+
+    // Verify admin password
+    const admin = await prisma.user.findUnique({
+      where: { id: req.user!.id }
+    });
+
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+
+    const bcrypt = require('bcrypt');
+    const isValidPassword = await bcrypt.compare(password, admin.passwordHash);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        message: 'كلمة المرور غير صحيحة'
+      });
+    }
 
     const fromCurrency = await prisma.currency.findUnique({
       where: { code: fromCurrencyCode }
@@ -468,6 +576,16 @@ export const updateExchangeRate = async (req: AuthRequest, res: Response) => {
         message: 'Invalid currency codes'
       });
     }
+
+    // Get old value for audit log
+    const existingRate = await prisma.exchangeRate.findUnique({
+      where: {
+        fromCurrencyId_toCurrencyId: {
+          fromCurrencyId: fromCurrency.id,
+          toCurrencyId: toCurrency.id
+        }
+      }
+    });
 
     const updated = await prisma.exchangeRate.upsert({
       where: {
@@ -490,14 +608,25 @@ export const updateExchangeRate = async (req: AuthRequest, res: Response) => {
       }
     });
 
-    await prisma.auditLog.create({
-      data: {
-        userId: req.user!.id,
-        action: 'UPDATE_EXCHANGE_RATE',
-        tableName: 'exchange_rates',
-        recordId: updated.id,
-        details: { fromCurrencyCode, toCurrencyCode, rate, adminFeePercent }
-      }
+    // Log the action
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: existingRate ? AuditActions.UPDATE_EXCHANGE_RATE : AuditActions.CREATE_EXCHANGE_RATE,
+      entity: AuditEntities.EXCHANGE_RATES,
+      entityId: String(updated.id),
+      oldValue: existingRate ? {
+        fromCurrency: fromCurrencyCode,
+        toCurrency: toCurrencyCode,
+        rate: existingRate.rate.toString(),
+        adminFeePercent: existingRate.adminFeePercent.toString()
+      } : null,
+      newValue: {
+        fromCurrency: fromCurrencyCode,
+        toCurrency: toCurrencyCode,
+        rate: rate.toString(),
+        adminFeePercent: adminFeePercent.toString()
+      },
+      req
     });
 
     res.json({
@@ -664,6 +793,18 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
         role: true,
         isActive: true,
         isVerified: true,
+        kycStatus: true,
+        kycSubmittedAt: true,
+        kycDocuments: {
+          select: {
+            id: true,
+            type: true,
+            filePath: true,
+            status: true,
+            rejectionReason: true,
+            uploadedAt: true
+          }
+        },
         createdAt: true,
         _count: {
           select: {
@@ -730,13 +871,30 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
       }
     });
 
+    // Map KYC status
+    let kycStatusMapped = 'pending';
+    if (user.kycStatus === 'APPROVED') kycStatusMapped = 'verified';
+    else if (user.kycStatus === 'REJECTED') kycStatusMapped = 'rejected';
+    else if (user.kycStatus === 'PENDING') kycStatusMapped = 'pending';
+    else if (user.kycStatus === 'NOT_SUBMITTED') kycStatusMapped = 'not_submitted';
+
+    // Map KYC documents
+    const kycDocuments = user.kycDocuments.map(doc => ({
+      id: doc.id.toString(),
+      type: doc.type as 'id_front' | 'id_back' | 'selfie',
+      uploadDate: doc.uploadedAt.toISOString(),
+      status: doc.status as 'approved' | 'pending' | 'rejected',
+      url: `/uploads/kyc/${doc.filePath}`,
+      rejectionReason: doc.rejectionReason || undefined
+    }));
+
     res.json({
       success: true,
       data: {
         user: {
           ...user,
           status: user.isActive ? 'active' : 'blocked',
-          kycStatus: user.isVerified ? 'verified' : 'pending',
+          kycStatus: kycStatusMapped,
           tier: rejectionRatio > 30 ? 'high_risk' : totalTransactions > 50 ? 'vip' : 'regular'
         },
         stats: {
@@ -746,6 +904,7 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
           rejectionRatio,
           fraudRisk
         },
+        kycDocuments,
         auditLog: auditLog.map(log => ({
           id: log.id.toString(),
           action: log.action,
@@ -815,6 +974,481 @@ export const getUserTransactions = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch user transactions'
+    });
+  }
+};
+
+// Approve KYC document
+export const approveKycDocument = async (req: AuthRequest, res: Response) => {
+  try {
+    const { docId } = req.params;
+
+    const document = await prisma.kycDocument.update({
+      where: { id: parseInt(docId) },
+      data: {
+        status: 'approved',
+        reviewedAt: new Date()
+      }
+    });
+
+    // Check if all documents are approved, then update user KYC status
+    const userDocs = await prisma.kycDocument.findMany({
+      where: { userId: document.userId }
+    });
+
+    const allApproved = userDocs.every(doc => doc.status === 'approved');
+    if (allApproved) {
+      const user = await prisma.user.update({
+        where: { id: document.userId },
+        data: {
+          kycStatus: 'APPROVED',
+          kycReviewedAt: new Date(),
+          kycReviewedBy: req.user!.id
+        }
+      });
+
+      // Send KYC approved email
+      await emailService.sendKycApprovedEmail(user.email, user.fullName);
+    }
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user!.id,
+        action: 'APPROVE_KYC_DOCUMENT',
+        tableName: 'kyc_documents',
+        recordId: document.id,
+        details: { documentType: document.type, userId: document.userId }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Document approved successfully',
+      data: { document, kycFullyApproved: allApproved }
+    });
+  } catch (error) {
+    console.error('Approve KYC document error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve document'
+    });
+  }
+};
+
+// Reject KYC document
+export const rejectKycDocument = async (req: AuthRequest, res: Response) => {
+  try {
+    const { docId } = req.params;
+    const { reason } = req.body;
+
+    const document = await prisma.kycDocument.update({
+      where: { id: parseInt(docId) },
+      data: {
+        status: 'rejected',
+        rejectionReason: reason,
+        reviewedAt: new Date()
+      }
+    });
+
+    // Update user KYC status to rejected
+    const user = await prisma.user.update({
+      where: { id: document.userId },
+      data: {
+        kycStatus: 'REJECTED',
+        kycReviewedAt: new Date(),
+        kycReviewedBy: req.user!.id
+      }
+    });
+
+    // Send KYC rejected email
+    await emailService.sendKycRejectedEmail(user.email, user.fullName, reason);
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user!.id,
+        action: 'REJECT_KYC_DOCUMENT',
+        tableName: 'kyc_documents',
+        recordId: document.id,
+        details: { documentType: document.type, userId: document.userId, reason }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Document rejected',
+      data: { document }
+    });
+  } catch (error) {
+    console.error('Reject KYC document error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject document'
+    });
+  }
+};
+
+// Get admin notifications (aggregated from various sources)
+export const getAdminNotifications = async (req: AuthRequest, res: Response) => {
+  try {
+    // Get pending transactions
+    const pendingTransactions = await prisma.transaction.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      include: { user: { select: { fullName: true } } }
+    });
+
+    // Get transactions with uploaded receipts (under review)
+    const receiptsPending = await prisma.transaction.findMany({
+      where: { status: 'UNDER_REVIEW' },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      include: { user: { select: { fullName: true } } }
+    });
+
+    // Get pending KYC
+    const pendingKyc = await prisma.user.findMany({
+      where: { kycStatus: 'PENDING' },
+      orderBy: { kycSubmittedAt: 'desc' },
+      take: 5,
+      select: { id: true, fullName: true, kycSubmittedAt: true }
+    });
+
+    // Get completed transactions (last 24h)
+    const completedTransactions = await prisma.transaction.findMany({
+      where: {
+        status: 'COMPLETED',
+        completedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      },
+      orderBy: { completedAt: 'desc' },
+      take: 5,
+      include: { user: { select: { fullName: true } } }
+    });
+
+    // Get newly verified users (last 24h)
+    const verifiedUsers = await prisma.user.findMany({
+      where: {
+        kycStatus: 'APPROVED',
+        kycReviewedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      },
+      orderBy: { kycReviewedAt: 'desc' },
+      take: 5,
+      select: { id: true, fullName: true, kycReviewedAt: true }
+    });
+
+    // Build notifications array
+    const notifications = [
+      // High priority - pending transactions
+      ...pendingTransactions.map(tx => ({
+        id: `tx-${tx.id}`,
+        category: 'pending_transaction',
+        priority: 'high',
+        title: 'معاملة جديدة بانتظار الموافقة',
+        description: `تحويل بقيمة ${tx.amountSent} من ${tx.user.fullName}`,
+        timestamp: tx.createdAt,
+        isRead: false,
+        link: '/admin/transactions'
+      })),
+
+      // High priority - receipts pending
+      ...receiptsPending.map(tx => ({
+        id: `receipt-${tx.id}`,
+        category: 'pending_receipt',
+        priority: 'high',
+        title: 'إيصال جديد بانتظار المراجعة',
+        description: `تم رفع إيصال للمعاملة ${tx.transactionRef}`,
+        timestamp: tx.updatedAt,
+        isRead: false,
+        link: '/admin/transactions'
+      })),
+
+      // High priority - pending KYC
+      ...pendingKyc.map(user => ({
+        id: `kyc-${user.id}`,
+        category: 'pending_kyc',
+        priority: 'high',
+        title: 'طلب KYC جديد',
+        description: `${user.fullName} ينتظر التحقق من الهوية`,
+        timestamp: user.kycSubmittedAt,
+        isRead: false,
+        link: `/admin/users/${user.id}`
+      })),
+
+      // Normal - completed transfers
+      ...completedTransactions.map(tx => ({
+        id: `completed-${tx.id}`,
+        category: 'completed_transfer',
+        priority: 'normal',
+        title: 'تحويل مكتمل',
+        description: `تم إتمام التحويل ${tx.transactionRef} بنجاح`,
+        timestamp: tx.completedAt,
+        isRead: true,
+        link: '/admin/transactions'
+      })),
+
+      // Normal - verified users
+      ...verifiedUsers.map(user => ({
+        id: `verified-${user.id}`,
+        category: 'verified_user',
+        priority: 'normal',
+        title: 'مستخدم جديد موثق',
+        description: `تم التحقق من حساب ${user.fullName}`,
+        timestamp: user.kycReviewedAt,
+        isRead: true,
+        link: `/admin/users/${user.id}`
+      }))
+    ];
+
+    // Sort by timestamp
+    notifications.sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    res.json({
+      success: true,
+      data: notifications
+    });
+  } catch (error) {
+    console.error('Get admin notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch notifications'
+    });
+  }
+};
+
+// Mark notification as read (for future use with persistent notifications)
+export const markNotificationAsRead = async (req: AuthRequest, res: Response) => {
+  try {
+    // For now, just return success - in production you'd track read state
+    res.json({
+      success: true,
+      message: 'Notification marked as read'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark notification as read'
+    });
+  }
+};
+
+// Mark all notifications as read
+export const markAllNotificationsAsRead = async (req: AuthRequest, res: Response) => {
+  try {
+    res.json({
+      success: true,
+      message: 'All notifications marked as read'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark all notifications as read'
+    });
+  }
+};
+
+// Get admin profile
+export const getAdminProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        role: true,
+        createdAt: true
+      }
+    });
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: admin
+    });
+  } catch (error) {
+    console.error('Get admin profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch admin profile'
+    });
+  }
+};
+
+// Get audit logs with filtering and pagination
+export const getAuditLogs = async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      action,
+      entity,
+      adminId,
+      startDate,
+      endDate,
+      search
+    } = req.query;
+
+    const where: any = {};
+
+    if (action) {
+      where.action = action;
+    }
+
+    if (entity) {
+      where.entity = entity;
+    }
+
+    if (adminId) {
+      where.adminId = parseInt(adminId as string);
+    }
+
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) {
+        where.createdAt.gte = new Date(startDate as string);
+      }
+      if (endDate) {
+        where.createdAt.lte = new Date(endDate as string);
+      }
+    }
+
+    if (search) {
+      where.OR = [
+        { action: { contains: search as string, mode: 'insensitive' } },
+        { entity: { contains: search as string, mode: 'insensitive' } },
+        { admin: { email: { contains: search as string, mode: 'insensitive' } } },
+        { admin: { fullName: { contains: search as string, mode: 'insensitive' } } }
+      ];
+    }
+
+    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where,
+        include: {
+          admin: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit as string)
+      }),
+      prisma.auditLog.count({ where })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        logs,
+        pagination: {
+          total,
+          page: parseInt(page as string),
+          limit: parseInt(limit as string),
+          totalPages: Math.ceil(total / parseInt(limit as string))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get audit logs error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch audit logs'
+    });
+  }
+};
+
+// Get audit log by ID
+export const getAuditLogById = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const log = await prisma.auditLog.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        admin: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        message: 'Audit log not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: log
+    });
+  } catch (error) {
+    console.error('Get audit log by ID error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch audit log'
+    });
+  }
+};
+
+// Get audit log statistics
+export const getAuditLogStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const [actionCounts, entityCounts, recentActivity] = await Promise.all([
+      prisma.auditLog.groupBy({
+        by: ['action'],
+        _count: { action: true },
+        orderBy: { _count: { action: 'desc' } },
+        take: 10
+      }),
+      prisma.auditLog.groupBy({
+        by: ['entity'],
+        _count: { entity: true },
+        orderBy: { _count: { entity: 'desc' } }
+      }),
+      prisma.auditLog.count({
+        where: {
+          createdAt: {
+            gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+          }
+        }
+      })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        actionCounts,
+        entityCounts,
+        recentActivity
+      }
+    });
+  } catch (error) {
+    console.error('Get audit log stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch audit log statistics'
     });
   }
 };

@@ -1,0 +1,204 @@
+{
+  "templates": [
+    {
+      "id": "welcome",
+      "language": "ar",
+      "subject": "مرحباً بك في راصد - حسابك جاهز",
+      "preheader": "ابدأ رحلتك في تحويل الأموال بسهولة وأمان",
+      "body": "مرحباً {{name}}،\n\nأهلاً بك في راصد! يسعدنا انضمامك إلى منصتنا لتحويل الأموال.\n\nحسابك الآن جاهز للاستخدام. يمكنك البدء بإجراء تحويلاتك المالية بكل سهولة وأمان.\n\nللبدء، يرجى إكمال عملية التحقق من هويتك (KYC) للاستفادة من جميع خدماتنا.\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "أكمل التحقق من هويتك",
+      "cta_url": "{{base_url}}/register/kyc",
+      "variables": ["{{name}}", "{{email}}", "{{base_url}}"]
+    },
+    {
+      "id": "welcome",
+      "language": "en",
+      "subject": "Welcome to Rasid - Your Account is Ready",
+      "preheader": "Start your journey in easy and secure money transfers",
+      "body": "Hello {{name}},\n\nWelcome to Rasid! We're delighted to have you join our money transfer platform.\n\nYour account is now ready to use. You can start making your financial transfers easily and securely.\n\nTo get started, please complete your identity verification (KYC) to access all our services.\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "Complete Identity Verification",
+      "cta_url": "{{base_url}}/register/kyc",
+      "variables": ["{{name}}", "{{email}}", "{{base_url}}"]
+    },
+    {
+      "id": "email_verification",
+      "language": "ar",
+      "subject": "رمز التحقق من بريدك الإلكتروني - راصد",
+      "preheader": "استخدم هذا الرمز لتأكيد بريدك الإلكتروني",
+      "body": "مرحباً {{name}}،\n\nرمز التحقق الخاص بك هو:\n\n{{otp}}\n\nهذا الرمز صالح لمدة 10 دقائق فقط. لا تشاركه مع أي شخص.\n\nإذا لم تطلب هذا الرمز، يرجى تجاهل هذا البريد.\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "تأكيد البريد الإلكتروني",
+      "cta_url": "{{base_url}}/verify?code={{otp}}",
+      "variables": ["{{name}}", "{{otp}}", "{{base_url}}"]
+    },
+    {
+      "id": "email_verification",
+      "language": "en",
+      "subject": "Your Email Verification Code - Rasid",
+      "preheader": "Use this code to verify your email address",
+      "body": "Hello {{name}},\n\nYour verification code is:\n\n{{otp}}\n\nThis code is valid for 10 minutes only. Do not share it with anyone.\n\nIf you didn't request this code, please ignore this email.\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "Verify Email",
+      "cta_url": "{{base_url}}/verify?code={{otp}}",
+      "variables": ["{{name}}", "{{otp}}", "{{base_url}}"]
+    },
+    {
+      "id": "kyc_received",
+      "language": "ar",
+      "subject": "تم استلام وثائقك - قيد المراجعة",
+      "preheader": "نقوم بمراجعة مستنداتك وسنُعلمك قريباً",
+      "body": "مرحباً {{name}}،\n\nشكراً لك! لقد تلقينا وثائق التحقق من هويتك بنجاح.\n\nفريقنا يقوم الآن بمراجعة مستنداتك. عادةً ما تستغرق هذه العملية من 24 إلى 48 ساعة عمل.\n\nسنقوم بإشعارك فور اكتمال المراجعة.\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "تتبع حالة التحقق",
+      "cta_url": "{{base_url}}/dashboard",
+      "variables": ["{{name}}", "{{base_url}}"]
+    },
+    {
+      "id": "kyc_received",
+      "language": "en",
+      "subject": "Documents Received - Under Review",
+      "preheader": "We're reviewing your documents and will notify you soon",
+      "body": "Hello {{name}},\n\nThank you! We have successfully received your identity verification documents.\n\nOur team is now reviewing your documents. This process typically takes 24-48 business hours.\n\nWe will notify you once the review is complete.\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "Track Verification Status",
+      "cta_url": "{{base_url}}/dashboard",
+      "variables": ["{{name}}", "{{base_url}}"]
+    },
+    {
+      "id": "kyc_approved",
+      "language": "ar",
+      "subject": "تمت الموافقة على التحقق من هويتك ✓",
+      "preheader": "حسابك الآن موثق بالكامل - ابدأ التحويل",
+      "body": "مرحباً {{name}}،\n\nأخبار سارة! تمت الموافقة على وثائق التحقق من هويتك بنجاح.\n\nحسابك الآن موثق بالكامل ويمكنك الاستفادة من جميع خدمات راصد:\n• إجراء تحويلات مالية دولية\n• حدود تحويل أعلى\n• أسعار صرف تنافسية\n\nابدأ أول تحويل لك الآن!\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "ابدأ التحويل الآن",
+      "cta_url": "{{base_url}}/transfer",
+      "variables": ["{{name}}", "{{base_url}}"]
+    },
+    {
+      "id": "kyc_approved",
+      "language": "en",
+      "subject": "Identity Verification Approved ✓",
+      "preheader": "Your account is now fully verified - Start transferring",
+      "body": "Hello {{name}},\n\nGreat news! Your identity verification documents have been successfully approved.\n\nYour account is now fully verified and you can access all Rasid services:\n• Make international money transfers\n• Higher transfer limits\n• Competitive exchange rates\n\nStart your first transfer now!\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "Start Transfer Now",
+      "cta_url": "{{base_url}}/transfer",
+      "variables": ["{{name}}", "{{base_url}}"]
+    },
+    {
+      "id": "kyc_rejected",
+      "language": "ar",
+      "subject": "يلزم تحديث وثائق التحقق",
+      "preheader": "نحتاج إلى إعادة رفع بعض المستندات",
+      "body": "مرحباً {{name}}،\n\nللأسف، لم نتمكن من الموافقة على وثائق التحقق من هويتك للسبب التالي:\n\n{{reason}}\n\nيرجى إعادة رفع المستندات المطلوبة مع التأكد من:\n• وضوح الصورة وجودتها\n• ظهور جميع المعلومات بشكل كامل\n• صلاحية المستند\n\nإذا كنت بحاجة إلى مساعدة، لا تتردد في التواصل مع فريق الدعم.\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "إعادة رفع المستندات",
+      "cta_url": "{{base_url}}/register/kyc",
+      "variables": ["{{name}}", "{{reason}}", "{{base_url}}"]
+    },
+    {
+      "id": "kyc_rejected",
+      "language": "en",
+      "subject": "Verification Documents Need Update",
+      "preheader": "We need you to re-upload some documents",
+      "body": "Hello {{name}},\n\nUnfortunately, we were unable to approve your identity verification documents for the following reason:\n\n{{reason}}\n\nPlease re-upload the required documents ensuring:\n• Clear and high-quality image\n• All information is fully visible\n• Document is valid and not expired\n\nIf you need assistance, please don't hesitate to contact our support team.\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "Re-upload Documents",
+      "cta_url": "{{base_url}}/register/kyc",
+      "variables": ["{{name}}", "{{reason}}", "{{base_url}}"]
+    },
+    {
+      "id": "transaction_created",
+      "language": "ar",
+      "subject": "تم إنشاء تحويل جديد - {{transaction_id}}",
+      "preheader": "تحويلك قيد المعالجة - يرجى رفع الإيصال",
+      "body": "مرحباً {{name}}،\n\nتم إنشاء طلب تحويل جديد بنجاح.\n\nتفاصيل التحويل:\n• رقم المرجع: {{transaction_id}}\n• المبلغ المرسل: {{amount_sent}} {{from_currency}}\n• المبلغ المستلم: {{amount_received}} {{to_currency}}\n• سعر الصرف: {{exchange_rate}}\n• المستفيد: {{recipient_name}}\n\nالخطوة التالية:\nيرجى إتمام عملية الدفع ورفع إيصال التحويل لمتابعة معالجة طلبك.\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "رفع إيصال الدفع",
+      "cta_url": "{{base_url}}/transactions/{{transaction_id}}",
+      "variables": ["{{name}}", "{{transaction_id}}", "{{amount_sent}}", "{{from_currency}}", "{{amount_received}}", "{{to_currency}}", "{{exchange_rate}}", "{{recipient_name}}", "{{base_url}}"]
+    },
+    {
+      "id": "transaction_created",
+      "language": "en",
+      "subject": "New Transfer Created - {{transaction_id}}",
+      "preheader": "Your transfer is being processed - Please upload receipt",
+      "body": "Hello {{name}},\n\nYour new transfer request has been successfully created.\n\nTransfer Details:\n• Reference Number: {{transaction_id}}\n• Amount Sent: {{amount_sent}} {{from_currency}}\n• Amount Received: {{amount_received}} {{to_currency}}\n• Exchange Rate: {{exchange_rate}}\n• Recipient: {{recipient_name}}\n\nNext Step:\nPlease complete the payment and upload the transfer receipt to continue processing your request.\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "Upload Payment Receipt",
+      "cta_url": "{{base_url}}/transactions/{{transaction_id}}",
+      "variables": ["{{name}}", "{{transaction_id}}", "{{amount_sent}}", "{{from_currency}}", "{{amount_received}}", "{{to_currency}}", "{{exchange_rate}}", "{{recipient_name}}", "{{base_url}}"]
+    },
+    {
+      "id": "receipt_uploaded",
+      "language": "ar",
+      "subject": "تم استلام إيصال الدفع - {{transaction_id}}",
+      "preheader": "نقوم بمراجعة إيصالك الآن",
+      "body": "مرحباً {{name}}،\n\nشكراً لك! تم استلام إيصال الدفع الخاص بتحويلك رقم {{transaction_id}}.\n\nفريقنا يقوم الآن بالتحقق من الإيصال. ستتلقى إشعاراً فور اكتمال المراجعة والموافقة على تحويلك.\n\nيمكنك تتبع حالة تحويلك من خلال حسابك.\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "تتبع التحويل",
+      "cta_url": "{{base_url}}/transactions/{{transaction_id}}",
+      "variables": ["{{name}}", "{{transaction_id}}", "{{base_url}}"]
+    },
+    {
+      "id": "receipt_uploaded",
+      "language": "en",
+      "subject": "Payment Receipt Received - {{transaction_id}}",
+      "preheader": "We're reviewing your receipt now",
+      "body": "Hello {{name}},\n\nThank you! We have received the payment receipt for your transfer {{transaction_id}}.\n\nOur team is now verifying the receipt. You will receive a notification once the review is complete and your transfer is approved.\n\nYou can track your transfer status through your account.\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "Track Transfer",
+      "cta_url": "{{base_url}}/transactions/{{transaction_id}}",
+      "variables": ["{{name}}", "{{transaction_id}}", "{{base_url}}"]
+    },
+    {
+      "id": "transaction_completed",
+      "language": "ar",
+      "subject": "تم إتمام تحويلك بنجاح ✓ - {{transaction_id}}",
+      "preheader": "تم تحويل الأموال إلى المستفيد بنجاح",
+      "body": "مرحباً {{name}}،\n\nيسعدنا إبلاغك بأن تحويلك قد تم بنجاح!\n\nملخص التحويل:\n• رقم المرجع: {{transaction_id}}\n• المبلغ المرسل: {{amount_sent}} {{from_currency}}\n• المبلغ المستلم: {{amount_received}} {{to_currency}}\n• المستفيد: {{recipient_name}}\n• تاريخ الإتمام: {{completion_date}}\n\nتم إيداع المبلغ في حساب المستفيد بنجاح.\n\nشكراً لاختيارك راصد!\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "عرض تفاصيل التحويل",
+      "cta_url": "{{base_url}}/transactions/{{transaction_id}}",
+      "variables": ["{{name}}", "{{transaction_id}}", "{{amount_sent}}", "{{from_currency}}", "{{amount_received}}", "{{to_currency}}", "{{recipient_name}}", "{{completion_date}}", "{{base_url}}"]
+    },
+    {
+      "id": "transaction_completed",
+      "language": "en",
+      "subject": "Transfer Completed Successfully ✓ - {{transaction_id}}",
+      "preheader": "Funds have been successfully transferred to the recipient",
+      "body": "Hello {{name}},\n\nWe're pleased to inform you that your transfer has been completed successfully!\n\nTransfer Summary:\n• Reference Number: {{transaction_id}}\n• Amount Sent: {{amount_sent}} {{from_currency}}\n• Amount Received: {{amount_received}} {{to_currency}}\n• Recipient: {{recipient_name}}\n• Completion Date: {{completion_date}}\n\nThe amount has been successfully deposited to the recipient's account.\n\nThank you for choosing Rasid!\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "View Transfer Details",
+      "cta_url": "{{base_url}}/transactions/{{transaction_id}}",
+      "variables": ["{{name}}", "{{transaction_id}}", "{{amount_sent}}", "{{from_currency}}", "{{amount_received}}", "{{to_currency}}", "{{recipient_name}}", "{{completion_date}}", "{{base_url}}"]
+    },
+    {
+      "id": "transaction_failed",
+      "language": "ar",
+      "subject": "تم إلغاء/فشل التحويل - {{transaction_id}}",
+      "preheader": "نعتذر، لم يتم إتمام تحويلك",
+      "body": "مرحباً {{name}}،\n\nنأسف لإبلاغك بأن تحويلك رقم {{transaction_id}} لم يتم إتمامه.\n\nالسبب: {{reason}}\n\nتفاصيل التحويل:\n• المبلغ: {{amount_sent}} {{from_currency}}\n• المستفيد: {{recipient_name}}\n\nإذا تم خصم أي مبلغ، سيتم إرجاعه خلال 3-5 أيام عمل.\n\nإذا كنت بحاجة إلى مساعدة، يرجى التواصل مع فريق الدعم.\n\nمع تحيات،\nفريق راصد",
+      "cta_text": "التواصل مع الدعم",
+      "cta_url": "{{base_url}}/support",
+      "variables": ["{{name}}", "{{transaction_id}}", "{{reason}}", "{{amount_sent}}", "{{from_currency}}", "{{recipient_name}}", "{{base_url}}"]
+    },
+    {
+      "id": "transaction_failed",
+      "language": "en",
+      "subject": "Transfer Cancelled/Failed - {{transaction_id}}",
+      "preheader": "We're sorry, your transfer was not completed",
+      "body": "Hello {{name}},\n\nWe regret to inform you that your transfer {{transaction_id}} was not completed.\n\nReason: {{reason}}\n\nTransfer Details:\n• Amount: {{amount_sent}} {{from_currency}}\n• Recipient: {{recipient_name}}\n\nIf any amount was deducted, it will be refunded within 3-5 business days.\n\nIf you need assistance, please contact our support team.\n\nBest regards,\nThe Rasid Team",
+      "cta_text": "Contact Support",
+      "cta_url": "{{base_url}}/support",
+      "variables": ["{{name}}", "{{transaction_id}}", "{{reason}}", "{{amount_sent}}", "{{from_currency}}", "{{recipient_name}}", "{{base_url}}"]
+    },
+    {
+      "id": "support_ticket",
+      "language": "ar",
+      "subject": "تم استلام طلب الدعم - #{{ticket_id}}",
+      "preheader": "فريقنا سيتواصل معك قريباً",
+      "body": "مرحباً {{name}}،\n\nشكراً لتواصلك معنا! تم استلام طلب الدعم الخاص بك.\n\nرقم التذكرة: #{{ticket_id}}\nالموضوع: {{subject}}\n\nفريق الدعم لدينا سيقوم بمراجعة طلبك والرد عليك خلال 24 ساعة عمل.\n\nيمكنك الرد على هذا البريد لإضافة أي معلومات إضافية.\n\nمع تحيات،\nفريق دعم راصد",
+      "cta_text": "عرض حالة التذكرة",
+      "cta_url": "{{base_url}}/support/tickets/{{ticket_id}}",
+      "variables": ["{{name}}", "{{ticket_id}}", "{{subject}}", "{{base_url}}"]
+    },
+    {
+      "id": "support_ticket",
+      "language": "en",
+      "subject": "Support Ticket Received - #{{ticket_id}}",
+      "preheader": "Our team will get back to you soon",
+      "body": "Hello {{name}},\n\nThank you for contacting us! We have received your support request.\n\nTicket Number: #{{ticket_id}}\nSubject: {{subject}}\n\nOur support team will review your request and respond within 24 business hours.\n\nYou can reply to this email to add any additional information.\n\nBest regards,\nRasid Support Team",
+      "cta_text": "View Ticket Status",
+      "cta_url": "{{base_url}}/support/tickets/{{ticket_id}}",
+      "variables": ["{{name}}", "{{ticket_id}}", "{{subject}}", "{{base_url}}"]
+    }
+  ]
+}

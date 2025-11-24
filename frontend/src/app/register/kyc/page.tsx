@@ -101,13 +101,36 @@ export default function KYCPage() {
       });
 
       if (response.success) {
+        // --- بداية التعديل: حفظ حالة النجاح ---
+        const currentData = localStorage.getItem('registerData');
+        if (currentData) {
+          const data = JSON.parse(currentData);
+          localStorage.setItem('registerData', JSON.stringify({
+            ...data,
+            kycSubmitted: true
+          }));
+        }
+        // --- نهاية التعديل ---
+
         router.push('/register/status');
       } else {
         setErrors({ submit: response.message || 'حدث خطأ أثناء رفع الوثائق' });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('KYC upload error:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'حدث خطأ أثناء رفع الوثائق';
+      const getErrorMessage = (e: unknown): string => {
+        if (!e) return 'حدث خطأ أثناء رفع الوثائق';
+        if (typeof e === 'string') return e;
+        if (typeof e === 'object' && e !== null) {
+          const obj = e as Record<string, unknown>;
+          const response = obj.response as Record<string, unknown> | undefined;
+          const data = response?.data as Record<string, unknown> | undefined;
+          const message = data?.message ?? obj.message;
+          if (typeof message === 'string') return message;
+        }
+        return 'حدث خطأ أثناء رفع الوثائق';
+      };
+      const errorMessage = getErrorMessage(error);
       setErrors({ submit: errorMessage });
     } finally {
       setLoading(false);

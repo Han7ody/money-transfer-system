@@ -1,7 +1,7 @@
 // frontend/src/lib/api.ts
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.6:5000/api';
 
 // Create axios instance
 const api = axios.create({
@@ -102,7 +102,7 @@ export const authAPI = {
     formData.append('selfie', files.selfie);
 
     // Don't set Content-Type manually - let axios set it with boundary
-    const response = await api.post('/auth/kyc-upload', formData);
+    const response = await api.post('/kyc/upload', formData);
     return response.data;
   },
 
@@ -161,7 +161,7 @@ export const authAPI = {
 // ==================== TRANSACTION API ====================
 
 export const transactionAPI = {
-  create: async (data: any) => {
+  create: async (data: Record<string, unknown>) => {
     const response = await api.post('/transactions', data);
     return response.data;
   },
@@ -258,12 +258,18 @@ export const adminAPI = {
   },
 
   updateExchangeRate: async (data: {
-    fromCurrencyCode: string;
-    toCurrencyCode: string;
+    fromCurrency: string;
+    toCurrency: string;
     rate: number;
     adminFeePercent: number;
+    password: string;
   }) => {
     const response = await api.post('/admin/exchange-rates', data);
+    return response.data;
+  },
+
+  getExchangeRates: async () => {
+    const response = await api.get('/admin/exchange-rates');
     return response.data;
   },
 
@@ -282,6 +288,16 @@ export const adminAPI = {
     return response.data;
   },
 
+  approveKycDocument: async (docId: string) => {
+    const response = await api.post(`/admin/kyc/${docId}/approve`);
+    return response.data;
+  },
+
+  rejectKycDocument: async (docId: string, reason: string) => {
+    const response = await api.post(`/admin/kyc/${docId}/reject`, { reason });
+    return response.data;
+  },
+
   getUserById: async (userId: string) => {
     const response = await api.get(`/admin/users/${userId}`);
     return response.data;
@@ -294,6 +310,53 @@ export const adminAPI = {
     sortOrder?: string;
   }) => {
     const response = await api.get(`/admin/users/${userId}/transactions`, { params });
+    return response.data;
+  },
+
+  // Admin Notifications
+  getAdminNotifications: async () => {
+    const response = await api.get('/admin/notifications');
+    return response.data;
+  },
+
+  markNotificationAsRead: async (id: string) => {
+    const response = await api.post(`/admin/notifications/${id}/read`);
+    return response.data;
+  },
+
+  markAllNotificationsAsRead: async () => {
+    const response = await api.post('/admin/notifications/read-all');
+    return response.data;
+  },
+
+  // Admin Profile
+  getAdminProfile: async () => {
+    const response = await api.get('/admin/profile');
+    return response.data;
+  },
+
+  // Audit Logs
+  getAuditLogs: async (params?: {
+    page?: number;
+    limit?: number;
+    action?: string;
+    entity?: string;
+    adminId?: number;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  }) => {
+    const response = await api.get('/admin/audit-logs', { params });
+    return response.data;
+  },
+
+  getAuditLogById: async (id: number) => {
+    const response = await api.get(`/admin/audit-logs/${id}`);
+    return response.data;
+  },
+
+  getAuditLogStats: async () => {
+    const response = await api.get('/admin/audit-logs/stats');
     return response.data;
   }
 };

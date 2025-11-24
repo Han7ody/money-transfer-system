@@ -4,14 +4,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Users, DollarSign, Activity, Clock,
-  CheckCircle2, AlertCircle, LogOut, Menu, Bell, ChevronDown, Search,
-  Eye, ArrowUpRight, ArrowDownRight, Receipt, Settings, HelpCircle
+  CheckCircle2, AlertCircle, LogOut, Menu, Search,
+  Eye, ArrowUpRight, ArrowDownRight, Receipt, Settings, HelpCircle, Shield
 } from 'lucide-react';
 import { adminAPI, authAPI } from '@/lib/api';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar
 } from 'recharts';
+import { NotificationBell } from '@/components/admin/NotificationBell';
+import { NotificationPopover } from '@/components/admin/NotificationPopover';
+import { UserMenu } from '@/components/admin/UserMenu';
 
 // Types
 interface Transaction {
@@ -29,12 +32,13 @@ interface Transaction {
 
 interface Stats {
   totalTransactions: number;
+  pendingCount: number;
   underReviewCount: number;
   completedCount: number;
   totalUsers: number;
   todayTransactions?: number;
   todayVolume?: number;
-  pendingReceipts?: number;
+  pendingKycCount?: number;
 }
 
 // Helper to format currency
@@ -58,16 +62,12 @@ const formatDate = (date: string) => {
   });
 };
 
-// Mock chart data (replace with real data from API)
-const chartData = [
-  { name: 'السبت', transactions: 12, volume: 45000 },
-  { name: 'الأحد', transactions: 19, volume: 72000 },
-  { name: 'الإثنين', transactions: 15, volume: 58000 },
-  { name: 'الثلاثاء', transactions: 22, volume: 89000 },
-  { name: 'الأربعاء', transactions: 28, volume: 110000 },
-  { name: 'الخميس', transactions: 35, volume: 145000 },
-  { name: 'الجمعة', transactions: 42, volume: 168000 },
-];
+// Chart data type
+interface ChartDataItem {
+  name: string;
+  transactions: number;
+  volume: number;
+}
 
 const AdminDashboardPage = () => {
   const router = useRouter();
@@ -77,6 +77,7 @@ const AdminDashboardPage = () => {
   // Data states
   const [stats, setStats] = useState<Stats | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [chartData, setChartData] = useState<ChartDataItem[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
   const [loadingTxs, setLoadingTxs] = useState(true);
   const [error, setError] = useState('');
@@ -89,7 +90,12 @@ const AdminDashboardPage = () => {
     try {
       setLoadingStats(true);
       const response = await adminAPI.getDashboardStats();
-      if (response.success) setStats(response.data);
+      if (response.success) {
+        setStats(response.data);
+        if (response.data.weeklyChartData) {
+          setChartData(response.data.weeklyChartData);
+        }
+      }
     } catch {
       setError('فشل تحميل الإحصائيات.');
     } finally {
@@ -161,13 +167,6 @@ const AdminDashboardPage = () => {
     </div>
   );
 
-  // Notification Item
-  const notifications = [
-    { id: 1, type: 'new', message: 'معاملة جديدة بانتظار المراجعة', time: 'منذ 5 دقائق' },
-    { id: 2, type: 'receipt', message: 'تم رفع إيصال للمعاملة TXN-2024-001', time: 'منذ 15 دقيقة' },
-    { id: 3, type: 'alert', message: 'معاملة مرفوضة تحتاج مراجعة', time: 'منذ ساعة' },
-  ];
-
   return (
     <div className="min-h-screen bg-slate-50" dir="rtl">
       {/* Sidebar */}
@@ -205,6 +204,7 @@ const AdminDashboardPage = () => {
               <Users className="w-4 h-4" /> المستخدمين
             </button>
             <button
+              onClick={() => router.push('/admin/settings')}
               className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm"
             >
               <Settings className="w-4 h-4" /> الإعدادات
@@ -247,44 +247,15 @@ const AdminDashboardPage = () => {
             <div className="flex items-center gap-3">
               {/* Notifications */}
               <div className="relative">
-                <button
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors relative"
-                >
-                  <Bell className="w-5 h-5 text-slate-600" />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>
-                </button>
-
-                {showNotifications && (
-                  <div className="absolute left-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden z-50">
-                    <div className="p-4 border-b border-slate-100">
-                      <h3 className="font-semibold text-slate-900">الإشعارات</h3>
-                    </div>
-                    <div className="max-h-80 overflow-y-auto">
-                      {notifications.map(notif => (
-                        <div key={notif.id} className="p-4 hover:bg-slate-50 border-b border-slate-50 cursor-pointer">
-                          <p className="text-sm text-slate-700">{notif.message}</p>
-                          <p className="text-xs text-slate-400 mt-1">{notif.time}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="p-3 bg-slate-50">
-                      <button className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
-                        عرض جميع الإشعارات
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <NotificationBell onClick={() => setShowNotifications(!showNotifications)} />
+                <NotificationPopover
+                  isOpen={showNotifications}
+                  onClose={() => setShowNotifications(false)}
+                />
               </div>
 
-              {/* Profile */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 cursor-pointer">
-                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium text-indigo-600">م</span>
-                </div>
-                <span className="text-sm font-medium text-slate-700">المدير</span>
-                <ChevronDown className="w-4 h-4 text-slate-400" />
-              </div>
+              {/* User Menu */}
+              <UserMenu adminName="المدير" adminEmail="admin@rasid.com" />
             </div>
           </div>
         </header>
@@ -386,8 +357,15 @@ const AdminDashboardPage = () => {
                 <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-lg border border-orange-100">
                   <Receipt className="w-5 h-5 text-orange-600 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-orange-800">{stats?.pendingReceipts || 3} إيصالات</p>
+                    <p className="text-sm font-medium text-orange-800">{stats?.pendingCount || 0} إيصالات</p>
                     <p className="text-xs text-orange-600">بانتظار التحقق</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                  <Shield className="w-5 h-5 text-indigo-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-indigo-800">{stats?.pendingKycCount || 0} طلبات</p>
+                    <p className="text-xs text-indigo-600">KYC بانتظار التحقق</p>
                   </div>
                 </div>
                 <button
