@@ -335,6 +335,14 @@ router.post('/login', async (req, res) => {
       role: user.role
     });
 
+    // Set token as HTTP-only cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      sameSite: 'lax', // Use 'lax' for localhost, 'none' for production with HTTPS
+      secure: false, // Set to true in production with HTTPS
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+
     res.json({
       success: true,
       message: 'Login successful',
@@ -344,7 +352,9 @@ router.post('/login', async (req, res) => {
           fullName: user.fullName,
           email: user.email,
           phone: user.phone,
-          role: user.role
+          role: user.role,
+          isVerified: user.isVerified,
+          kycStatus: user.kycStatus
         },
         token
       }
@@ -407,5 +417,56 @@ router.post(
   handleUploadError,
   authController.uploadKycDocuments
 );
+
+// Get current user
+router.get('/me', verifyToken, async (req: any, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        role: true,
+        isVerified: true,
+        isActive: true,
+        kycStatus: true,
+        createdAt: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error('Get current user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user data'
+    });
+  }
+});
+
+// Logout
+router.post('/logout', (req, res) => {
+  res.clearCookie('token', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: false
+  });
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
+  });
+});
 
 export default router;

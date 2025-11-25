@@ -214,14 +214,13 @@ export const approveTransaction = async (req: AuthRequest, res: Response) => {
     });
 
     // Log action
-    await prisma.auditLog.create({
-      data: {
-        userId: req.user!.id,
-        action: 'APPROVE_TRANSACTION',
-        tableName: 'transactions',
-        recordId: parseInt(id),
-        details: { transactionRef: transaction.transactionRef, adminNotes }
-      }
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: AuditActions.APPROVE_TRANSACTION,
+      entity: AuditEntities.TRANSACTION,
+      entityId: String(updated.id),
+      newValue: { transactionRef: transaction.transactionRef, adminNotes },
+      req
     });
 
     res.json({
@@ -301,14 +300,13 @@ export const rejectTransaction = async (req: AuthRequest, res: Response) => {
       }
     });
 
-    await prisma.auditLog.create({
-      data: {
-        userId: req.user!.id,
-        action: 'REJECT_TRANSACTION',
-        tableName: 'transactions',
-        recordId: parseInt(id),
-        details: { transactionRef: transaction.transactionRef, rejectionReason }
-      }
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: AuditActions.REJECT_TRANSACTION,
+      entity: AuditEntities.TRANSACTION,
+      entityId: String(updated.id),
+      newValue: { transactionRef: transaction.transactionRef, rejectionReason },
+      req
     });
 
     res.json({
@@ -742,14 +740,14 @@ export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
       data: { isActive }
     });
 
-    await prisma.auditLog.create({
-      data: {
-        userId: req.user!.id,
-        action: isActive ? 'UNBLOCK_USER' : 'BLOCK_USER',
-        tableName: 'users',
-        recordId: parseInt(id),
-        details: { targetUser: user.email, action: isActive ? 'unblocked' : 'blocked' }
-      }
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: isActive ? 'UNBLOCK_USER' : 'BLOCK_USER',
+      entity: AuditEntities.USER,
+      entityId: String(updated.id),
+      oldValue: { isActive: user.isActive },
+      newValue: { isActive: updated.isActive },
+      req
     });
 
     // Send notification to user
@@ -854,18 +852,14 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
     const auditLog = await prisma.auditLog.findMany({
       where: {
         OR: [
-          { recordId: parseInt(id), tableName: 'users' },
-          { userId: parseInt(id) }
+          { entityId: id, entity: AuditEntities.USER },
+          { adminId: parseInt(id) }
         ]
       },
       orderBy: { createdAt: 'desc' },
       take: 20,
-      select: {
-        id: true,
-        action: true,
-        details: true,
-        createdAt: true,
-        user: {
+      include: {
+        admin: {
           select: { fullName: true, role: true }
         }
       }
@@ -905,13 +899,20 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
           fraudRisk
         },
         kycDocuments,
-        auditLog: auditLog.map(log => ({
-          id: log.id.toString(),
-          action: log.action,
-          type: log.user?.role === 'ADMIN' ? 'admin' : 'user',
-          timestamp: log.createdAt.toISOString(),
-          details: typeof log.details === 'object' ? JSON.stringify(log.details) : log.details
-        }))
+        auditLog: auditLog.map(log => {
+          const detailsObject: any = {};
+          if (log.oldValue) detailsObject.oldValue = log.oldValue;
+          if (log.newValue) detailsObject.newValue = log.newValue;
+          const details = Object.keys(detailsObject).length > 0 ? JSON.stringify(detailsObject) : null;
+          
+          return {
+            id: log.id.toString(),
+            action: log.action,
+            type: log.admin?.role === 'ADMIN' ? 'admin' : 'user',
+            timestamp: log.createdAt.toISOString(),
+            details: details
+          };
+        })
       }
     });
   } catch (error) {
@@ -1012,14 +1013,13 @@ export const approveKycDocument = async (req: AuthRequest, res: Response) => {
     }
 
     // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: req.user!.id,
-        action: 'APPROVE_KYC_DOCUMENT',
-        tableName: 'kyc_documents',
-        recordId: document.id,
-        details: { documentType: document.type, userId: document.userId }
-      }
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: AuditActions.APPROVE_KYC,
+      entity: 'KycDocument',
+      entityId: String(document.id),
+      newValue: { documentType: document.type, userId: document.userId, status: 'APPROVED' },
+      req
     });
 
     res.json({
@@ -1065,14 +1065,13 @@ export const rejectKycDocument = async (req: AuthRequest, res: Response) => {
     await emailService.sendKycRejectedEmail(user.email, user.fullName, reason);
 
     // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: req.user!.id,
-        action: 'REJECT_KYC_DOCUMENT',
-        tableName: 'kyc_documents',
-        recordId: document.id,
-        details: { documentType: document.type, userId: document.userId, reason }
-      }
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: AuditActions.REJECT_KYC,
+      entity: 'KycDocument',
+      entityId: String(document.id),
+      newValue: { documentType: document.type, userId: document.userId, reason, status: 'REJECTED' },
+      req
     });
 
     res.json({

@@ -8,7 +8,8 @@ const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  withCredentials: true // Enable sending cookies with requests
 });
 
 // Request interceptor to add token
@@ -115,10 +116,16 @@ export const authAPI = {
     return response.data;
   },
 
-  logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    window.location.href = '/login';
+  logout: async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
   },
 
   getCurrentUser: async () => {
@@ -205,7 +212,7 @@ export const transactionAPI = {
   // 🛑 الدالة المضافة لجلب العملات (مطلوبة في Admin Dashboard)
   getCurrencies: async () => {
     // نستخدم مسار Admin لأنه يتطلب صلاحية جلب العملات كلها
-    const response = await api.get('/api/currencies');
+    const response = await api.get('/currencies');
     return response.data;
   }
 };
@@ -221,12 +228,12 @@ export const adminAPI = {
     dateFrom?: string;
     dateTo?: string;
   }) => {
-    const response = await api.get('/api/transactions', { params });
+    const response = await api.get('/transactions', { params });
     return response.data;
   },
 
   getTransactionById: async (id: string) => {
-    const response = await api.get(`/api/transactions/${id}`);
+    const response = await api.get(`/transactions/${id}`);
     return response.data;
   },
 
@@ -235,7 +242,7 @@ export const adminAPI = {
     paymentReference?: string;
     adminNotes?: string;
   }) => {
-    const response = await api.post(`/api/transactions/${id}/approve`, data);
+    const response = await api.post(`/transactions/${id}/approve`, data);
     return response.data;
   },
 
@@ -243,17 +250,17 @@ export const adminAPI = {
     rejectionReason: string;
     adminNotes?: string;
   }) => {
-    const response = await api.post(`/api/transactions/${id}/reject`, data);
+    const response = await api.post(`/transactions/${id}/reject`, data);
     return response.data;
   },
 
   completeTransaction: async (id: number, data?: { adminNotes?: string }) => {
-    const response = await api.post(`/api/transactions/${id}/complete`, data);
+    const response = await api.post(`/transactions/${id}/complete`, data);
     return response.data;
   },
 
   getDashboardStats: async () => {
-    const response = await api.get('/api/dashboard/stats');
+    const response = await api.get('/dashboard/stats');
     return response.data;
   },
 
@@ -264,12 +271,12 @@ export const adminAPI = {
     adminFeePercent: number;
     password: string;
   }) => {
-    const response = await api.post('/api/exchange-rates', data);
+    const response = await api.post('/exchange-rates', data);
     return response.data;
   },
 
   getExchangeRates: async () => {
-    const response = await api.get('/api/exchange-rates');
+    const response = await api.get('/exchange-rates');
     return response.data;
   },
 
@@ -279,27 +286,27 @@ export const adminAPI = {
     page?: number;
     limit?: number;
   }) => {
-    const response = await api.get('/api/users', { params });
+    const response = await api.get('/users', { params });
     return response.data;
   },
 
   toggleUserStatus: async (userId: number, isActive: boolean) => {
-    const response = await api.put(`/api/users/${userId}/status`, { isActive });
+    const response = await api.put(`/users/${userId}/status`, { isActive });
     return response.data;
   },
 
   approveKycDocument: async (docId: string) => {
-    const response = await api.post(`/api/kyc/${docId}/approve`);
+    const response = await api.post(`/kyc/${docId}/approve`);
     return response.data;
   },
 
   rejectKycDocument: async (docId: string, reason: string) => {
-    const response = await api.post(`/api/kyc/${docId}/reject`, { reason });
+    const response = await api.post(`/kyc/${docId}/reject`, { reason });
     return response.data;
   },
 
   getUserById: async (userId: string) => {
-    const response = await api.get(`/api/users/${userId}`);
+    const response = await api.get(`/users/${userId}`);
     return response.data;
   },
 
@@ -309,29 +316,29 @@ export const adminAPI = {
     sortField?: string;
     sortOrder?: string;
   }) => {
-    const response = await api.get(`/api/users/${userId}/transactions`, { params });
+    const response = await api.get(`/users/${userId}/transactions`, { params });
     return response.data;
   },
 
   // Admin Notifications
   getAdminNotifications: async () => {
-    const response = await api.get('/api/notifications');
+    const response = await api.get('/notifications');
     return response.data;
   },
 
   markNotificationAsRead: async (id: string) => {
-    const response = await api.post(`/api/notifications/${id}/read`);
+    const response = await api.post(`/notifications/${id}/read`);
     return response.data;
   },
 
   markAllNotificationsAsRead: async () => {
-    const response = await api.post('/api/notifications/read-all');
+    const response = await api.post('/notifications/read-all');
     return response.data;
   },
 
   // Admin Profile
   getAdminProfile: async () => {
-    const response = await api.get('/api/profile');
+    const response = await api.get('/profile');
     return response.data;
   },
 
@@ -346,17 +353,17 @@ export const adminAPI = {
     endDate?: string;
     search?: string;
   }) => {
-    const response = await api.get('/api/audit-logs', { params });
+    const response = await api.get('/audit-logs', { params });
     return response.data;
   },
 
   getAuditLogById: async (id: number) => {
-    const response = await api.get(`/api/audit-logs/${id}`);
+    const response = await api.get(`/audit-logs/${id}`);
     return response.data;
   },
 
   getAuditLogStats: async () => {
-    const response = await api.get('/api/audit-logs/stats');
+    const response = await api.get('/audit-logs/stats');
     return response.data;
   }
 };

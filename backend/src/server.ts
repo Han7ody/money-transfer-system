@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import prisma from './lib/prisma';
 import { verifyToken, isAdmin } from './middleware/auth';
@@ -13,7 +14,6 @@ import * as userController from './controllers/userController';
 import authRoutes from './routes/authRoutes';
 import path from 'path';
 import emailService from './services/emailService';
-
 
 dotenv.config();
 
@@ -27,11 +27,12 @@ app.use(helmet({
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'http://192.168.1.6:3000', // <-- أضف هذا السطر
+    'http://192.168.1.6:3000',
     process.env.FRONTEND_URL || ''
   ],
   credentials: true
 }));
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
@@ -39,17 +40,21 @@ app.use(morgan('dev'));
 // Serve uploaded files (absolute path for dev and prod)
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+// ==================== API ROUTER ====================
+// Group all API routes under /api
+const apiRouter = express.Router();
+
 // ==================== AUTH ROUTES ====================
-app.use('/api/auth', authRoutes);
+apiRouter.use('/auth', authRoutes);
 
 // ==================== USER ROUTES ====================
 
-app.put('/api/users/me', verifyToken, userController.updateCurrentUser);
-app.put('/api/users/me/notification-settings', verifyToken, userController.updateNotificationSettings);
+apiRouter.put('/users/me', verifyToken, userController.updateCurrentUser);
+apiRouter.put('/users/me/notification-settings', verifyToken, userController.updateNotificationSettings);
 
 // ==================== KYC ROUTES ====================
 
-app.post('/api/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError, async (req: any, res: any) => {
+apiRouter.post('/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError, async (req: any, res: any) => {
   try {
     const userId = req.user.id;
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
@@ -120,15 +125,15 @@ app.post('/api/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError, 
 
 // ==================== TRANSACTION ROUTES ====================
 
-app.post('/api/transactions', verifyToken, transactionController.createTransaction);
-app.post('/api/transactions/:transactionId/upload', verifyToken, uploadReceipt, handleUploadError, transactionController.uploadReceipt);
-app.get('/api/exchange-rate', verifyToken, transactionController.getExchangeRate);
-app.post('/api/transactions/:id/cancel', verifyToken, transactionController.cancelTransaction);
+apiRouter.post('/transactions', verifyToken, transactionController.createTransaction);
+apiRouter.post('/transactions/:transactionId/upload', verifyToken, uploadReceipt, handleUploadError, transactionController.uploadReceipt);
+apiRouter.get('/exchange-rate', verifyToken, transactionController.getExchangeRate);
+apiRouter.post('/transactions/:id/cancel', verifyToken, transactionController.cancelTransaction);
 
 // ==================== ADMIN ROUTES ====================
 
 // Transaction Management (Admin gets all transactions, users get their own)
-app.get('/api/transactions', verifyToken, async (req: any, res: any) => {
+apiRouter.get('/transactions', verifyToken, async (req: any, res: any) => {
   // If admin, use admin controller to get all transactions
   if (req.user.role === 'ADMIN') {
     return adminController.getAllTransactions(req, res);
@@ -137,7 +142,7 @@ app.get('/api/transactions', verifyToken, async (req: any, res: any) => {
   return transactionController.getUserTransactions(req, res);
 });
 
-app.get('/api/transactions/:id', verifyToken, async (req: any, res: any) => {
+apiRouter.get('/transactions/:id', verifyToken, async (req: any, res: any) => {
   // If admin, use admin controller
   if (req.user.role === 'ADMIN') {
     return adminController.getTransactionById(req, res);
@@ -146,41 +151,41 @@ app.get('/api/transactions/:id', verifyToken, async (req: any, res: any) => {
   return transactionController.getTransactionById(req, res);
 });
 
-app.post('/api/transactions/:id/approve', verifyToken, isAdmin, adminController.approveTransaction);
-app.post('/api/transactions/:id/reject', verifyToken, isAdmin, adminController.rejectTransaction);
-app.post('/api/transactions/:id/complete', verifyToken, isAdmin, adminController.completeTransaction);
+apiRouter.post('/transactions/:id/approve', verifyToken, isAdmin, adminController.approveTransaction);
+apiRouter.post('/transactions/:id/reject', verifyToken, isAdmin, adminController.rejectTransaction);
+apiRouter.post('/transactions/:id/complete', verifyToken, isAdmin, adminController.completeTransaction);
 
 // Dashboard Stats
-app.get('/api/dashboard/stats', verifyToken, isAdmin, adminController.getDashboardStats);
+apiRouter.get('/dashboard/stats', verifyToken, isAdmin, adminController.getDashboardStats);
 
 // Exchange Rates Management
-app.get('/api/exchange-rates', verifyToken, adminController.getExchangeRates);
-app.post('/api/exchange-rates', verifyToken, isAdmin, adminController.updateExchangeRate);
+apiRouter.get('/exchange-rates', verifyToken, adminController.getExchangeRates);
+apiRouter.post('/exchange-rates', verifyToken, isAdmin, adminController.updateExchangeRate);
 
 // Currencies
-app.get('/api/currencies', verifyToken, isAdmin, adminController.getAllCurrencies);
+apiRouter.get('/currencies', verifyToken, isAdmin, adminController.getAllCurrencies);
 
 // User Management (Admin-only)
-app.get('/api/users', verifyToken, isAdmin, adminController.getAllUsers);
-app.get('/api/users/:id', verifyToken, isAdmin, adminController.getUserById);
-app.get('/api/users/:id/transactions', verifyToken, isAdmin, adminController.getUserTransactions);
-app.put('/api/users/:id/status', verifyToken, isAdmin, adminController.toggleUserStatus);
+apiRouter.get('/users', verifyToken, isAdmin, adminController.getAllUsers);
+apiRouter.get('/users/:id', verifyToken, isAdmin, adminController.getUserById);
+apiRouter.get('/users/:id/transactions', verifyToken, isAdmin, adminController.getUserTransactions);
+apiRouter.put('/users/:id/status', verifyToken, isAdmin, adminController.toggleUserStatus);
 
 // KYC Management
-app.post('/api/kyc/:docId/approve', verifyToken, isAdmin, adminController.approveKycDocument);
-app.post('/api/kyc/:docId/reject', verifyToken, isAdmin, adminController.rejectKycDocument);
+apiRouter.post('/kyc/:docId/approve', verifyToken, isAdmin, adminController.approveKycDocument);
+apiRouter.post('/kyc/:docId/reject', verifyToken, isAdmin, adminController.rejectKycDocument);
 
 // Admin Profile
-app.get('/api/profile', verifyToken, isAdmin, adminController.getAdminProfile);
+apiRouter.get('/profile', verifyToken, isAdmin, adminController.getAdminProfile);
 
 // Audit Logs (note: /stats must come before /:id)
-app.get('/api/audit-logs', verifyToken, isAdmin, adminController.getAuditLogs);
-app.get('/api/audit-logs/stats', verifyToken, isAdmin, adminController.getAuditLogStats);
-app.get('/api/audit-logs/:id', verifyToken, isAdmin, adminController.getAuditLogById);
+apiRouter.get('/audit-logs', verifyToken, isAdmin, adminController.getAuditLogs);
+apiRouter.get('/audit-logs/stats', verifyToken, isAdmin, adminController.getAuditLogStats);
+apiRouter.get('/audit-logs/:id', verifyToken, isAdmin, adminController.getAuditLogById);
 
 // ==================== NOTIFICATIONS ====================
 
-app.get('/api/notifications', verifyToken, async (req: any, res: any) => {
+apiRouter.get('/notifications', verifyToken, async (req: any, res: any) => {
   // If admin, use admin controller
   if (req.user.role === 'ADMIN') {
     return adminController.getAdminNotifications(req, res);
@@ -206,7 +211,7 @@ app.get('/api/notifications', verifyToken, async (req: any, res: any) => {
   }
 });
 
-app.post('/api/notifications/:id/read', verifyToken, async (req: any, res: any) => {
+apiRouter.post('/notifications/:id/read', verifyToken, async (req: any, res: any) => {
   // If admin, use admin controller
   if (req.user.role === 'ADMIN') {
     return adminController.markNotificationAsRead(req, res);
@@ -231,17 +236,20 @@ app.post('/api/notifications/:id/read', verifyToken, async (req: any, res: any) 
   }
 });
 
-app.post('/api/notifications/read-all', verifyToken, isAdmin, adminController.markAllNotificationsAsRead);
+apiRouter.post('/notifications/read-all', verifyToken, isAdmin, adminController.markAllNotificationsAsRead);
 
 // ==================== HEALTH CHECK ====================
 
-app.get('/api/health', (req, res) => {
+apiRouter.get('/health', (req, res) => {
   res.json({
     success: true,
     message: 'Server is running',
     timestamp: new Date().toISOString()
   });
 });
+
+// Use the apiRouter for all routes starting with /api
+app.use('/api', apiRouter);
 
 // 404 Handler
 app.use((req, res) => {

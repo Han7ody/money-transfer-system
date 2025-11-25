@@ -19,7 +19,12 @@ export const verifyToken = (
   next: NextFunction
 ) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1]; // Bearer TOKEN
+    // Try to get token from cookie first, then fall back to Authorization header
+    let token = req.cookies?.token;
+
+    if (!token) {
+      token = req.headers.authorization?.split(' ')[1]; // Bearer TOKEN
+    }
 
     if (!token) {
       return res.status(401).json({
