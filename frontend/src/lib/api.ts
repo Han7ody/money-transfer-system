@@ -212,7 +212,7 @@ export const transactionAPI = {
   // 🛑 الدالة المضافة لجلب العملات (مطلوبة في Admin Dashboard)
   getCurrencies: async () => {
     // نستخدم مسار Admin لأنه يتطلب صلاحية جلب العملات كلها
-    const response = await api.get('/currencies');
+    const response = await api.get('/admin/currencies');
     return response.data;
   }
 };
@@ -242,7 +242,7 @@ export const adminAPI = {
     paymentReference?: string;
     adminNotes?: string;
   }) => {
-    const response = await api.post(`/transactions/${id}/approve`, data);
+    const response = await api.post(`/admin/transactions/${id}/approve`, data);
     return response.data;
   },
 
@@ -250,17 +250,17 @@ export const adminAPI = {
     rejectionReason: string;
     adminNotes?: string;
   }) => {
-    const response = await api.post(`/transactions/${id}/reject`, data);
+    const response = await api.post(`/admin/transactions/${id}/reject`, data);
     return response.data;
   },
 
   completeTransaction: async (id: number, data?: { adminNotes?: string }) => {
-    const response = await api.post(`/transactions/${id}/complete`, data);
+    const response = await api.post(`/admin/transactions/${id}/complete`, data);
     return response.data;
   },
 
   getDashboardStats: async () => {
-    const response = await api.get('/dashboard/stats');
+    const response = await api.get('/admin/dashboard/stats');
     return response.data;
   },
 
@@ -271,12 +271,12 @@ export const adminAPI = {
     adminFeePercent: number;
     password: string;
   }) => {
-    const response = await api.post('/exchange-rates', data);
+    const response = await api.post('/admin/exchange-rates', data);
     return response.data;
   },
 
   getExchangeRates: async () => {
-    const response = await api.get('/exchange-rates');
+    const response = await api.get('/admin/exchange-rates');
     return response.data;
   },
 
@@ -286,27 +286,27 @@ export const adminAPI = {
     page?: number;
     limit?: number;
   }) => {
-    const response = await api.get('/users', { params });
+    const response = await api.get('/admin/users', { params });
     return response.data;
   },
 
   toggleUserStatus: async (userId: number, isActive: boolean) => {
-    const response = await api.put(`/users/${userId}/status`, { isActive });
+    const response = await api.put(`/admin/users/${userId}/status`, { isActive });
     return response.data;
   },
 
   approveKycDocument: async (docId: string) => {
-    const response = await api.post(`/kyc/${docId}/approve`);
+    const response = await api.post(`/admin/kyc/${docId}/approve`);
     return response.data;
   },
 
   rejectKycDocument: async (docId: string, reason: string) => {
-    const response = await api.post(`/kyc/${docId}/reject`, { reason });
+    const response = await api.post(`/admin/kyc/${docId}/reject`, { reason });
     return response.data;
   },
 
   getUserById: async (userId: string) => {
-    const response = await api.get(`/users/${userId}`);
+    const response = await api.get(`/admin/users/${userId}`);
     return response.data;
   },
 
@@ -316,7 +316,7 @@ export const adminAPI = {
     sortField?: string;
     sortOrder?: string;
   }) => {
-    const response = await api.get(`/users/${userId}/transactions`, { params });
+    const response = await api.get(`/admin/users/${userId}/transactions`, { params });
     return response.data;
   },
 
@@ -338,7 +338,15 @@ export const adminAPI = {
 
   // Admin Profile
   getAdminProfile: async () => {
-    const response = await api.get('/profile');
+    const response = await api.get('/admin/profile');
+    return response.data;
+  },
+
+  updateAdminProfile: async (data: {
+    fullName?: string;
+    email?: string;
+  }) => {
+    const response = await api.put('/admin/profile', data);
     return response.data;
   },
 
@@ -353,17 +361,104 @@ export const adminAPI = {
     endDate?: string;
     search?: string;
   }) => {
-    const response = await api.get('/audit-logs', { params });
+    const response = await api.get('/admin/system/audit-logs', { params });
     return response.data;
   },
 
   getAuditLogById: async (id: number) => {
-    const response = await api.get(`/audit-logs/${id}`);
+    const response = await api.get(`/admin/system/audit-logs/${id}`);
     return response.data;
   },
 
   getAuditLogStats: async () => {
-    const response = await api.get('/audit-logs/stats');
+    const response = await api.get('/admin/system/audit-logs/stats');
+    return response.data;
+  },
+
+  // Security - Password Change
+  changePassword: async (data: {
+    currentPassword: string;
+    newPassword: string;
+  }) => {
+    const response = await api.post('/admin/security/change-password', data);
+    return response.data;
+  },
+
+  // Security - Login History
+  getLoginHistory: async (params?: {
+    page?: number;
+    limit?: number;
+  }) => {
+    const response = await api.get('/admin/security/login-history', { params });
+    return response.data;
+  },
+
+  // Security - Active Sessions
+  getActiveSessions: async () => {
+    const response = await api.get('/admin/security/sessions');
+    return response.data;
+  },
+
+  terminateSession: async (sessionId: string) => {
+    const response = await api.delete(`/admin/security/sessions/${sessionId}`);
+    return response.data;
+  },
+
+  terminateAllOtherSessions: async () => {
+    const response = await api.delete('/admin/security/sessions/others');
+    return response.data;
+  },
+
+  // Security - Two-Factor Authentication
+  get2FAStatus: async () => {
+    const response = await api.get('/admin/security/2fa/status');
+    return response.data;
+  },
+
+  enable2FA: async () => {
+    const response = await api.post('/admin/security/2fa/enable');
+    return response.data;
+  },
+
+  verify2FA: async (code: string) => {
+    const response = await api.post('/admin/security/2fa/verify', { code });
+    return response.data;
+  },
+
+  disable2FA: async () => {
+    const response = await api.post('/admin/security/2fa/disable');
+    return response.data;
+  },
+
+  // System Settings
+  getSystemSettings: async () => {
+    const response = await api.get('/admin/system/settings');
+    return response.data;
+  },
+
+  updateSystemSettings: async (data: Partial<Record<string, unknown>>) => {
+    const response = await api.patch('/admin/system/settings', data);
+    return response.data;
+  },
+
+  uploadLogo: async (file: File) => {
+    const formData = new FormData();
+    formData.append('logo', file);
+    const response = await api.post('/admin/system/settings/logo', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    return response.data;
+  },
+
+  testSmtp: async () => {
+    const response = await api.post('/admin/system/settings/smtp/test');
+    return response.data;
+  },
+
+  getCurrencies: async () => {
+    const response = await api.get('/admin/currencies');
     return response.data;
   }
 };
@@ -423,6 +518,15 @@ export const isAuthenticated = () => {
 export const isAdmin = () => {
   const user = getCurrentUser();
   return user?.role === 'ADMIN';
+};
+
+// Export a unified apiClient for convenience (combines all APIs)
+export const apiClient = {
+  ...authAPI,
+  ...transactionAPI,
+  ...adminAPI,
+  ...userAPI,
+  ...notificationAPI
 };
 
 export default api;

@@ -3,140 +3,172 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowRight,
+  FileText,
   Search,
   Filter,
+  Loader2,
+  Eye,
   Calendar,
   User,
-  Eye,
-  X,
+  Database,
   ChevronLeft,
-  ChevronRight,
-  Clock,
-  Shield,
-  Settings,
-  DollarSign,
-  UserCheck,
-  LogIn,
-  LogOut,
-  Key,
-  AlertTriangle,
-  RefreshCw
+  ChevronRight
 } from 'lucide-react';
-import { adminAPI } from '@/lib/api';
-
-interface AuditLog {
-  id: number;
-  adminId: number | null;
-  action: string;
-  entity: string;
-  entityId: string | null;
-  oldValue: any;
-  newValue: any;
-  ipAddress: string | null;
-  userAgent: string | null;
-  createdAt: string;
-  admin: {
-    id: number;
-    fullName: string;
-    email: string;
-  } | null;
-}
-
-interface Pagination {
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
-// Action type labels and colors
-const actionConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  UPDATE_EXCHANGE_RATE: { label: 'تحديث سعر الصرف', color: 'bg-blue-100 text-blue-700', icon: <DollarSign className="w-3.5 h-3.5" /> },
-  CREATE_EXCHANGE_RATE: { label: 'إنشاء سعر صرف', color: 'bg-green-100 text-green-700', icon: <DollarSign className="w-3.5 h-3.5" /> },
-  UPDATE_GENERAL_SETTINGS: { label: 'تحديث الإعدادات العامة', color: 'bg-blue-100 text-blue-700', icon: <Settings className="w-3.5 h-3.5" /> },
-  UPDATE_SMTP: { label: 'تحديث إعدادات SMTP', color: 'bg-blue-100 text-blue-700', icon: <Settings className="w-3.5 h-3.5" /> },
-  UPDATE_SECURITY_SETTINGS: { label: 'تحديث إعدادات الأمان', color: 'bg-orange-100 text-orange-700', icon: <Shield className="w-3.5 h-3.5" /> },
-  ADMIN_LOGIN: { label: 'تسجيل دخول', color: 'bg-green-100 text-green-700', icon: <LogIn className="w-3.5 h-3.5" /> },
-  ADMIN_LOGOUT: { label: 'تسجيل خروج', color: 'bg-slate-100 text-slate-700', icon: <LogOut className="w-3.5 h-3.5" /> },
-  PASSWORD_CHANGE: { label: 'تغيير كلمة المرور', color: 'bg-red-100 text-red-700', icon: <Key className="w-3.5 h-3.5" /> },
-  APPROVE_KYC: { label: 'الموافقة على KYC', color: 'bg-green-100 text-green-700', icon: <UserCheck className="w-3.5 h-3.5" /> },
-  REJECT_KYC: { label: 'رفض KYC', color: 'bg-red-100 text-red-700', icon: <UserCheck className="w-3.5 h-3.5" /> },
-  APPROVE_TRANSACTION: { label: 'الموافقة على معاملة', color: 'bg-green-100 text-green-700', icon: <DollarSign className="w-3.5 h-3.5" /> },
-  REJECT_TRANSACTION: { label: 'رفض معاملة', color: 'bg-red-100 text-red-700', icon: <DollarSign className="w-3.5 h-3.5" /> },
-  COMPLETE_TRANSACTION: { label: 'إتمام معاملة', color: 'bg-emerald-100 text-emerald-700', icon: <DollarSign className="w-3.5 h-3.5" /> },
-  UPDATE_USER: { label: 'تحديث مستخدم', color: 'bg-blue-100 text-blue-700', icon: <User className="w-3.5 h-3.5" /> },
-  DELETE_USER: { label: 'حذف مستخدم', color: 'bg-red-100 text-red-700', icon: <User className="w-3.5 h-3.5" /> }
-};
-
-// Entity labels
-const entityLabels: Record<string, string> = {
-  SystemSettings: 'إعدادات النظام',
-  ExchangeRates: 'أسعار الصرف',
-  User: 'المستخدمين',
-  Transaction: 'المعاملات',
-  Auth: 'المصادقة'
-};
+import { useAuth } from '@/hooks/useAuth';
+import { apiClient } from '@/lib/api';
+import { AuditLog, AuditLogFilters } from '@/types/audit';
+import { AuditLogDrawer } from '@/components/admin/AuditLogDrawer';
 
 export default function AuditLogsPage() {
   const router = useRouter();
+  const { role } = useAuth();
+
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [pagination, setPagination] = useState<Pagination>({ total: 0, page: 1, limit: 20, totalPages: 0 });
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Filters
-  const [search, setSearch] = useState('');
-  const [actionFilter, setActionFilter] = useState('');
-  const [entityFilter, setEntityFilter] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 20;
 
-  const fetchLogs = async (page = 1) => {
+  const [filters, setFilters] = useState<AuditLogFilters>({
+    page: 1,
+    limit: 20,
+    action: '',
+    entity: '',
+    adminId: undefined,
+    startDate: '',
+    endDate: '',
+    search: ''
+  });
+
+  const [availableActions, setAvailableActions] = useState<string[]>([]);
+  const [availableEntities, setAvailableEntities] = useState<string[]>([]);
+  const [availableAdmins, setAvailableAdmins] = useState<Array<{ id: number; name: string; email: string }>>([]);
+
+  useEffect(() => {
+    if (role && role !== 'SUPER_ADMIN') {
+      router.push('/unauthorized');
+    }
+  }, [role, router]);
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  useEffect(() => {
+    if (role === 'SUPER_ADMIN') {
+      fetchLogs();
+    }
+  }, [currentPage, role]);
+
+  const fetchStats = async () => {
     try {
-      setIsLoading(true);
-      const response = await adminAPI.getAuditLogs({
-        page,
-        limit: 20,
-        action: actionFilter || undefined,
-        entity: entityFilter || undefined,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
-        search: search || undefined
-      });
-
+      const response = await apiClient.getAuditLogStats();
       if (response.success) {
-        setLogs(response.data.logs);
-        setPagination(response.data.pagination);
+        setAvailableActions(Object.keys(response.data.logsByAction || {}));
+        setAvailableEntities(Object.keys(response.data.logsByEntity || {}));
+        setAvailableAdmins(
+          (response.data.logsByAdmin || []).map((admin: any) => ({
+            id: admin.adminId,
+            name: admin.adminName,
+            email: admin.adminEmail || ''
+          }))
+        );
       }
-    } catch (error) {
-      console.error('Failed to fetch audit logs:', error);
-    } finally {
-      setIsLoading(false);
+    } catch (err) {
+      console.error('Failed to fetch stats:', err);
     }
   };
 
-  useEffect(() => {
-    fetchLogs();
-  }, [actionFilter, entityFilter, startDate, endDate]);
+  const fetchLogs = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = {
+        ...filters,
+        page: currentPage,
+        limit
+      };
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchLogs(1);
+      Object.keys(params).forEach((key) => {
+        if (params[key as keyof typeof params] === '' || params[key as keyof typeof params] === undefined) {
+          delete params[key as keyof typeof params];
+        }
+      });
+
+      const response = await apiClient.getAuditLogs(params);
+
+      if (response.success) {
+        // Handle both response.data.logs and response.data as array
+        const logsData = response.data.logs || response.data;
+        setLogs(Array.isArray(logsData) ? logsData : []);
+
+        // Handle pagination data
+        const totalCount = response.data.pagination?.total || response.total || 0;
+        setTotal(totalCount);
+        setTotalPages(Math.ceil(totalCount / limit));
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'فشل تحميل سجل التغييرات');
+      setLogs([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const clearFilters = () => {
-    setSearch('');
-    setActionFilter('');
-    setEntityFilter('');
-    setStartDate('');
-    setEndDate('');
+  const handleFilterChange = (key: keyof AuditLogFilters, value: any) => {
+    setFilters((prev) => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const handleApplyFilters = () => {
+    setCurrentPage(1);
+    fetchLogs();
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      page: 1,
+      limit: 20,
+      action: '',
+      entity: '',
+      adminId: undefined,
+      startDate: '',
+      endDate: '',
+      search: ''
+    });
+    setCurrentPage(1);
+    setTimeout(fetchLogs, 100);
+  };
+
+  const handleViewDetails = async (log: AuditLog) => {
+    try {
+      const response = await apiClient.getAuditLogById(log.id);
+      if (response.success) {
+        setSelectedLog(response.data);
+        setDrawerOpen(true);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'فشل تحميل تفاصيل السجل');
+    }
+  };
+
+  const getActionBadgeColor = (action: string) => {
+    if (action.startsWith('UPDATE_')) return 'bg-blue-100 text-blue-700 border-blue-200';
+    if (action === 'LOGIN' || action === 'LOGOUT') return 'bg-green-100 text-green-700 border-green-200';
+    if (action.startsWith('SECURITY_')) return 'bg-red-100 text-red-700 border-red-200';
+    return 'bg-slate-100 text-slate-700 border-slate-200';
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('ar-SA', {
+    const date = new Date(dateString);
+    return date.toLocaleString('ar-SA', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -145,346 +177,271 @@ export default function AuditLogsPage() {
     });
   };
 
-  const getActionConfig = (action: string) => {
-    return actionConfig[action] || {
-      label: action,
-      color: 'bg-slate-100 text-slate-700',
-      icon: <Settings className="w-3.5 h-3.5" />
-    };
-  };
-
-  const getChangeDescription = (log: AuditLog): string => {
-    if (log.action === 'UPDATE_EXCHANGE_RATE' && log.newValue) {
-      const { fromCurrency, toCurrency, rate } = log.newValue;
-      return `تم تعديل سعر ${fromCurrency} → ${toCurrency} إلى ${rate}`;
-    }
-    if (log.action === 'ADMIN_LOGIN') {
-      return 'تسجيل دخول إلى لوحة التحكم';
-    }
-    if (log.action === 'ADMIN_LOGOUT') {
-      return 'تسجيل خروج من لوحة التحكم';
-    }
-    return entityLabels[log.entity] || log.entity;
-  };
+  if (role !== 'SUPER_ADMIN') {
+    return null;
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm">
-          <button
-            onClick={() => router.push('/admin/settings')}
-            className="text-slate-500 hover:text-indigo-600"
-          >
-            الإعدادات
-          </button>
-          <ArrowRight className="w-4 h-4 text-slate-300 rotate-180" />
-          <span className="text-slate-900 font-medium">سجل التغييرات</span>
-        </div>
-        <button
-          onClick={() => fetchLogs(pagination.page)}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
-        >
-          <RefreshCw className="w-4 h-4" />
-          تحديث
-        </button>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">سجل التغيّرات</h1>
+        <p className="text-slate-600">عرض كافة عمليات التعديل التي تمت على إعدادات المنصة.</p>
       </div>
 
-      {/* Search and Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6">
-        <form onSubmit={handleSearch} className="flex gap-3 mb-4">
-          <div className="flex-1 relative">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-sm text-red-800">{error}</p>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Filter className="w-5 h-5 text-slate-600" />
+          <h3 className="font-semibold text-slate-900">تصفية السجلات</h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="col-span-full">
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              بحث (البريد الإلكتروني أو نوع العملية)
+            </label>
+            <div className="relative">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="text"
+                value={filters.search}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
+                placeholder="ابحث في السجلات..."
+                className="w-full pr-10 pl-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">نوع العملية</label>
+            <select
+              value={filters.action}
+              onChange={(e) => handleFilterChange('action', e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            >
+              <option value="">الكل</option>
+              {availableActions.map((action) => (
+                <option key={action} value={action}>
+                  {action}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">الكيان</label>
+            <select
+              value={filters.entity}
+              onChange={(e) => handleFilterChange('entity', e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            >
+              <option value="">الكل</option>
+              {availableEntities.map((entity) => (
+                <option key={entity} value={entity}>
+                  {entity}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">المسؤول</label>
+            <select
+              value={filters.adminId || ''}
+              onChange={(e) => handleFilterChange('adminId', e.target.value ? Number(e.target.value) : undefined)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            >
+              <option value="">الكل</option>
+              {availableAdmins.map((admin) => (
+                <option key={admin.id} value={admin.id}>
+                  {admin.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">من تاريخ</label>
             <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="البحث في السجلات..."
-              className="w-full pr-10 pl-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              type="date"
+              value={filters.startDate}
+              onChange={(e) => handleFilterChange('startDate', e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
-          <button
-            type="submit"
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            بحث
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2 border rounded-lg ${
-              showFilters ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <Filter className="w-4 h-4" />
-            فلترة
-          </button>
-        </form>
 
-        {/* Filter Options */}
-        {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t border-slate-100">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">نوع الإجراء</label>
-              <select
-                value={actionFilter}
-                onChange={(e) => setActionFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">الكل</option>
-                {Object.entries(actionConfig).map(([key, config]) => (
-                  <option key={key} value={key}>{config.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">الكيان</label>
-              <select
-                value={entityFilter}
-                onChange={(e) => setEntityFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">الكل</option>
-                {Object.entries(entityLabels).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">من تاريخ</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">إلى تاريخ</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <div className="md:col-span-4">
-              <button
-                onClick={clearFilters}
-                className="text-sm text-slate-600 hover:text-indigo-600"
-              >
-                مسح الفلاتر
-              </button>
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">إلى تاريخ</label>
+            <input
+              type="date"
+              value={filters.endDate}
+              onChange={(e) => handleFilterChange('endDate', e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
           </div>
-        )}
+        </div>
+
+        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-200">
+          <button
+            onClick={handleApplyFilters}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          >
+            تطبيق الفلاتر
+          </button>
+          <button
+            onClick={handleResetFilters}
+            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors font-medium"
+          >
+            إعادة تعيين
+          </button>
+          <div className="mr-auto text-sm text-slate-600">
+            إجمالي السجلات: <span className="font-semibold">{total}</span>
+          </div>
+        </div>
       </div>
 
-      {/* Logs Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        {isLoading ? (
-          <div className="p-8 text-center">
-            <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-slate-500">جاري التحميل...</p>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
           </div>
         ) : logs.length === 0 ? (
-          <div className="p-8 text-center">
-            <AlertTriangle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-500">لا توجد سجلات تغييرات حتى الآن.</p>
+          <div className="text-center py-20">
+            <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500">لا توجد سجلات تغيّرات حتى الآن.</p>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full" dir="rtl">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600">التاريخ / الوقت</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600">المسؤول</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600">الإجراء</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600">الكيان</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600">الوصف</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600">التفاصيل</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase">
+                      التاريخ
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase">
+                      المسؤول
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase">
+                      نوع العملية
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase">
+                      الكيان
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase">
+                      الوصف
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase">
+                      الإجراءات
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {logs.map((log) => {
-                    const config = getActionConfig(log.action);
-                    return (
-                      <tr key={log.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 text-sm text-slate-600">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            {formatDate(log.createdAt)}
+                <tbody className="divide-y divide-slate-200">
+                  {logs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm text-slate-700">{formatDate(log.createdAt)}</span>
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4 text-slate-400" />
+                          <div>
+                            {log.admin ? (
+                              <>
+                                <p className="text-sm font-medium text-slate-900">{log.admin.fullName}</p>
+                                <p className="text-xs text-slate-500">{log.admin.email}</p>
+                              </>
+                            ) : (
+                              <p className="text-sm text-slate-500">غير معروف</p>
+                            )}
                           </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {log.admin ? (
-                            <div>
-                              <p className="text-sm font-medium text-slate-900">{log.admin.fullName}</p>
-                              <p className="text-xs text-slate-500">{log.admin.email}</p>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-slate-400">غير معروف</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${config.color}`}>
-                            {config.icon}
-                            {config.label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-sm text-slate-600">
-                            {entityLabels[log.entity] || log.entity}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-sm text-slate-600 max-w-xs truncate">
-                            {getChangeDescription(log)}
-                          </p>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => {
-                              setSelectedLog(log);
-                              setShowDetailModal(true);
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getActionBadgeColor(
+                            log.action
+                          )}`}
+                        >
+                          {log.action}
+                        </span>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <Database className="w-4 h-4 text-slate-400" />
+                          <div>
+                            <p className="text-sm text-slate-700">{log.entity}</p>
+                            {log.entityId && (
+                              <p className="text-xs text-slate-500 font-mono">#{log.entityId}</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <p className="text-sm text-slate-600 max-w-xs truncate">
+                          {log.oldValue && log.newValue ? 'تم تحديث البيانات' : 'عملية جديدة'}
+                        </p>
+                      </td>
+
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <button
+                          onClick={() => handleViewDetails(log)}
+                          className="flex items-center gap-2 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                          عرض التفاصيل
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
 
-            {/* Pagination */}
-            {pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
-                <p className="text-sm text-slate-600">
-                  عرض {((pagination.page - 1) * pagination.limit) + 1} - {Math.min(pagination.page * pagination.limit, pagination.total)} من {pagination.total}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => fetchLogs(pagination.page - 1)}
-                    disabled={pagination.page === 1}
-                    className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => fetchLogs(pagination.page + 1)}
-                    disabled={pagination.page === pagination.totalPages}
-                    className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                  السابق
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-600">
+                    صفحة {currentPage} من {totalPages}
+                  </span>
                 </div>
+
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  التالي
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
               </div>
             )}
           </>
         )}
       </div>
 
-      {/* Detail Modal */}
-      {showDetailModal && selectedLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h3 className="font-semibold text-slate-900">تفاصيل السجل</h3>
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="p-1 hover:bg-slate-100 rounded-lg"
-              >
-                <X className="w-5 h-5 text-slate-500" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-              {/* Log Info */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">المسؤول</p>
-                  <p className="text-sm font-medium text-slate-900">
-                    {selectedLog.admin?.fullName || 'غير معروف'}
-                  </p>
-                  <p className="text-xs text-slate-500">{selectedLog.admin?.email}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">التاريخ</p>
-                  <p className="text-sm font-medium text-slate-900">
-                    {formatDate(selectedLog.createdAt)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">الإجراء</p>
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${getActionConfig(selectedLog.action).color}`}>
-                    {getActionConfig(selectedLog.action).icon}
-                    {getActionConfig(selectedLog.action).label}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">الكيان</p>
-                  <p className="text-sm font-medium text-slate-900">
-                    {entityLabels[selectedLog.entity] || selectedLog.entity}
-                  </p>
-                </div>
-              </div>
-
-              {/* IP & User Agent */}
-              {(selectedLog.ipAddress || selectedLog.userAgent) && (
-                <div className="mb-6 p-4 bg-slate-50 rounded-lg">
-                  <p className="text-xs font-semibold text-slate-600 mb-2">معلومات الجلسة</p>
-                  {selectedLog.ipAddress && (
-                    <p className="text-xs text-slate-600 mb-1">
-                      <span className="font-medium">IP:</span> {selectedLog.ipAddress}
-                    </p>
-                  )}
-                  {selectedLog.userAgent && (
-                    <p className="text-xs text-slate-600 break-all">
-                      <span className="font-medium">User Agent:</span> {selectedLog.userAgent}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Old & New Values */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs font-semibold text-slate-600 mb-2">القيمة السابقة</p>
-                  <div className="bg-red-50 border border-red-100 rounded-lg p-3 overflow-x-auto">
-                    <pre className="text-xs text-red-700 whitespace-pre-wrap" dir="ltr">
-                      {selectedLog.oldValue
-                        ? JSON.stringify(selectedLog.oldValue, null, 2)
-                        : 'لا توجد قيمة سابقة'}
-                    </pre>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-slate-600 mb-2">القيمة الجديدة</p>
-                  <div className="bg-green-50 border border-green-100 rounded-lg p-3 overflow-x-auto">
-                    <pre className="text-xs text-green-700 whitespace-pre-wrap" dir="ltr">
-                      {selectedLog.newValue
-                        ? JSON.stringify(selectedLog.newValue, null, 2)
-                        : 'لا توجد قيمة جديدة'}
-                    </pre>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="w-full px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AuditLogDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} log={selectedLog} />
     </div>
   );
 }

@@ -27,7 +27,8 @@ const LoginPage = () => {
           const role = me?.data?.role;
           const isVerified = me?.data?.isVerified;
 
-          if (role === 'ADMIN') {
+          // Redirect based on role
+          if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'SUPPORT' || role === 'VIEWER') {
             router.push('/admin');
           } else if (!isVerified) {
             try { await authAPI.sendVerificationOtp(); } catch {}

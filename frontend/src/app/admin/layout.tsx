@@ -1,22 +1,23 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Receipt, Settings, HelpCircle,
-  DollarSign, Menu, Shield
+  DollarSign, Menu
 } from 'lucide-react';
-import { authAPI } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
 import { NotificationBell } from '@/components/admin/NotificationBell';
 import { NotificationPopover } from '@/components/admin/NotificationPopover';
 import { UserMenu } from '@/components/admin/UserMenu';
+import { AdminUIProvider, useAdminUI } from '@/context/AdminUIContext';
 
-// Navigation items
-const navItems = [
-  { href: '/admin', label: 'الرئيسية', icon: LayoutDashboard },
-  { href: '/admin/transactions', label: 'المعاملات', icon: Receipt },
-  { href: '/admin/users', label: 'المستخدمين', icon: Users },
-  { href: '/admin/settings', label: 'الإعدادات', icon: Settings },
+// Base navigation items
+const allNavItems = [
+  { href: '/admin', label: 'الرئيسية', icon: LayoutDashboard, roles: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER'] },
+  { href: '/admin/transactions', label: 'المعاملات', icon: Receipt, roles: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER'] },
+  { href: '/admin/users', label: 'المستخدمين', icon: Users, roles: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT'] },
+  { href: '/admin/settings', label: 'الإعدادات', icon: Settings, roles: ['ADMIN', 'SUPER_ADMIN'] },
 ];
 
 // Page titles mapping
@@ -33,44 +34,15 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/admin/settings/policies': { title: 'السياسات', subtitle: 'إدارة سياسات المنصة' },
 };
 
-// RBAC Permissions
-type Role = 'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT' | 'VIEWER';
 
-const rolePermissions: Record<Role, { routes: string[]; canWrite: boolean }> = {
-  SUPER_ADMIN: {
-    routes: ['*'], // Full access
-    canWrite: true
-  },
-  ADMIN: {
-    routes: ['/admin', '/admin/transactions', '/admin/users'],
-    canWrite: true
-  },
-  SUPPORT: {
-    routes: ['/admin', '/admin/transactions', '/admin/users'],
-    canWrite: false
-  },
-  VIEWER: {
-    routes: ['/admin', '/admin/transactions', '/admin/users'],
-    canWrite: false
-  }
-};
-
-const checkRouteAccess = (pathname: string, role: Role): boolean => {
-  const permissions = rolePermissions[role];
-  if (permissions.routes.includes('*')) return true;
-
-  // Check if route or parent route is allowed
-  return permissions.routes.some(route =>
-    pathname === route || pathname.startsWith(route + '/')
-  );
-};
-
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [userRole, setUserRole] = useState<Role>('ADMIN');
+  const { role } = useAuth();
+  const { showSidebar, toggleSidebar, showNotifications, setShowNotifications } = useAdminUI();
+
+  // Filter nav items based on user role
+  const navItems = allNavItems.filter(item => role && item.roles.includes(role));
 
   // Get current page info
   const currentPage = pageTitles[pathname] || { title: 'لوحة التحكم', subtitle: '' };
@@ -80,29 +52,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     if (href === '/admin') return pathname === '/admin';
     return pathname.startsWith(href);
   };
-
-  // Check route access on pathname change
-  useEffect(() => {
-    // Get user role from localStorage or API
-    const storedRole = localStorage.getItem('userRole') as Role;
-    if (storedRole) {
-      setUserRole(storedRole);
-    }
-
-    // Check access
-    if (!checkRouteAccess(pathname, userRole)) {
-      router.push('/admin?error=unauthorized');
-    }
-  }, [pathname, userRole, router]);
-
-  // Handle unauthorized error
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('error') === 'unauthorized') {
-      // You can show a toast here
-      console.warn('ليس لديك صلاحية للوصول إلى هذه الصفحة.');
-    }
-  }, []);
+  
+  // The middleware now handles unauthorized access redirects, so the useEffect for that is removed.
 
   return (
     <div className="min-h-screen bg-slate-50" dir="rtl">
@@ -114,9 +65,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg flex items-center justify-center">
               <DollarSign className="w-5 h-5 text-white" />
             </div>
-            <div>
+            <div className="flex-1">
               <h2 className="font-bold text-slate-900">راصد</h2>
               <p className="text-xs text-slate-500">لوحة التحكم</p>
+              {role && (
+                <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] font-medium rounded ${
+                  role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-700' :
+                  role === 'ADMIN' ? 'bg-blue-100 text-blue-700' :
+                  role === 'SUPPORT' ? 'bg-green-100 text-green-700' :
+                  'bg-gray-100 text-gray-700'
+                }`}>
+                  {role === 'SUPER_ADMIN' ? 'مدير رئيسي' :
+                   role === 'ADMIN' ? 'مدير' :
+                   role === 'SUPPORT' ? 'دعم فني' :
+                   role === 'VIEWER' ? 'مشاهد' : role}
+                </span>
+              )}
             </div>
           </div>
 
@@ -159,7 +123,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => setShowSidebar(!showSidebar)}
+                onClick={toggleSidebar}
                 className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
               >
                 <Menu className="w-5 h-5 text-slate-600" />
@@ -173,7 +137,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div className="flex items-center gap-3">
               {/* Notifications */}
               <div className="relative">
-                <NotificationBell onClick={() => setShowNotifications(!showNotifications)} />
+                <NotificationBell onClick={() => setShowNotifications(prev => !prev)} />
                 <NotificationPopover
                   isOpen={showNotifications}
                   onClose={() => setShowNotifications(false)}
@@ -192,5 +156,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </main>
     </div>
+  );
+}
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AdminUIProvider>
+      <AdminLayoutContent>{children}</AdminLayoutContent>
+    </AdminUIProvider>
   );
 }

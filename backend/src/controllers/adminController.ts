@@ -1284,6 +1284,79 @@ export const getAdminProfile = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// Update admin profile
+export const updateAdminProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    const { fullName, email } = req.body;
+    const adminId = req.user!.id;
+
+    // Validate input
+    if (!fullName && !email) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one field (fullName or email) is required'
+      });
+    }
+
+    // If email is being updated, check if it's already taken
+    if (email) {
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          email,
+          id: { not: adminId }
+        }
+      });
+
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already in use'
+        });
+      }
+    }
+
+    // Update admin profile
+    const updatedAdmin = await prisma.user.update({
+      where: { id: adminId },
+      data: {
+        ...(fullName && { fullName }),
+        ...(email && { email })
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        role: true,
+        createdAt: true
+      }
+    });
+
+    // Log the update
+    await logAdminAction({
+      adminId,
+      action: AuditActions.UPDATE,
+      entity: AuditEntities.USER,
+      entityId: adminId.toString(),
+      oldValue: { fullName: req.user!.email },
+      newValue: { fullName, email },
+      req
+    });
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: updatedAdmin
+    });
+  } catch (error) {
+    console.error('Update admin profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update admin profile'
+    });
+  }
+};
+
 // Get audit logs with filtering and pagination
 export const getAuditLogs = async (req: AuthRequest, res: Response) => {
   try {

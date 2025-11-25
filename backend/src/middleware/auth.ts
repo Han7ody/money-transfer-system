@@ -1,6 +1,7 @@
 // backend/src/middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { logAdminAction, AuditActions, AuditEntities } from '../utils/auditLogger';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-key-change-in-production';
 
@@ -19,7 +20,6 @@ export const verifyToken = (
   next: NextFunction
 ) => {
   try {
-    // Try to get token from cookie first, then fall back to Authorization header
     let token = req.cookies?.token;
 
     if (!token) {
@@ -49,19 +49,34 @@ export const verifyToken = (
   }
 };
 
-// Check if user is Admin
-export const isAdmin = (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-) => {
-  if (req.user?.role !== 'ADMIN') {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. Admin privileges required.'
-    });
-  }
-  next();
+// Authorize based on roles
+export const authorize = (allowedRoles: string[]) => {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user?.role) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. User role not found.'
+      });
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      if (req.user) {
+        logAdminAction({
+            adminId: req.user.id,
+            action: 'UNAUTHORIZED_ACCESS',
+            entity: AuditEntities.AUTH,
+            entityId: req.path,
+            newValue: `Attempted to access with role ${req.user.role}`,
+            req: req,
+        });
+      }
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You do not have permission to access this resource.'
+      });
+    }
+    next();
+  };
 };
 
 // Generate JWT Token

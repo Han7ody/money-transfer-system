@@ -14,6 +14,7 @@ import {
   Clock
 } from 'lucide-react';
 import { authAPI, adminAPI } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
 
 interface UserMenuProps {
   adminName?: string;
@@ -25,6 +26,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
   adminEmail: propAdminEmail
 }) => {
   const router = useRouter();
+  const { role } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
@@ -107,42 +109,55 @@ export const UserMenu: React.FC<UserMenuProps> = ({
     router.push('/login');
   };
 
-  const menuItems = [
+  // Define all menu items with role requirements
+  const allMenuItems = [
     {
       icon: <User className="w-4 h-4" />,
       label: 'الملف الشخصي',
-      onClick: () => router.push('/admin/profile')
+      onClick: () => router.push('/admin/profile'),
+      roles: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER']
     },
     {
       icon: <Lock className="w-4 h-4" />,
       label: 'تغيير كلمة المرور',
-      onClick: () => router.push('/admin/security/password')
+      onClick: () => router.push('/admin/security/password'),
+      roles: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER']
     },
     {
       icon: <Shield className="w-4 h-4" />,
       label: 'إعدادات الأمان',
-      onClick: () => router.push('/admin/security')
+      onClick: () => router.push('/admin/security'),
+      roles: ['SUPER_ADMIN'] // Only super admins can access security settings
     },
     { type: 'divider' },
     {
       icon: isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />,
       label: isDarkMode ? 'الوضع الفاتح' : 'الوضع الداكن',
       onClick: toggleDarkMode,
-      hasToggle: true
+      hasToggle: true,
+      roles: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER']
     },
     {
       icon: <Globe className="w-4 h-4" />,
       label: language === 'ar' ? 'English' : 'العربية',
-      onClick: toggleLanguage
+      onClick: toggleLanguage,
+      roles: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER']
     },
     { type: 'divider' },
     {
       icon: <LogOut className="w-4 h-4" />,
       label: 'تسجيل الخروج',
       onClick: handleLogout,
-      danger: true
+      danger: true,
+      roles: ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER']
     }
   ];
+
+  // Filter menu items based on current user role
+  const menuItems = allMenuItems.filter(item => {
+    if (item.type === 'divider') return true;
+    return role && item.roles?.includes(role);
+  });
 
   return (
     <div className="relative">

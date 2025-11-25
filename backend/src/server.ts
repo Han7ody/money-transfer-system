@@ -6,12 +6,13 @@ import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import prisma from './lib/prisma';
-import { verifyToken, isAdmin } from './middleware/auth';
+import { verifyToken, authorize } from './middleware/auth';
 import { uploadReceipt, uploadKycDocuments, handleUploadError } from './middleware/upload';
 import * as transactionController from './controllers/transactionController';
 import * as adminController from './controllers/adminController';
 import * as userController from './controllers/userController';
 import authRoutes from './routes/authRoutes';
+import settingsRoutes from './routes/settingsRoutes';
 import path from 'path';
 import emailService from './services/emailService';
 
@@ -41,8 +42,14 @@ app.use(morgan('dev'));
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // ==================== API ROUTER ====================
-// Group all API routes under /api
 const apiRouter = express.Router();
+
+// Role constants
+const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
+const SUPER_ADMIN_ROLE = ['SUPER_ADMIN'];
+
+// A temporary constant to keep shared routes functional without changing their internal logic
+const VIEW_ROLES_SHARED = ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER'];
 
 // ==================== AUTH ROUTES ====================
 apiRouter.use('/auth', authRoutes);
@@ -60,66 +67,31 @@ apiRouter.post('/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
 
     if (!files || !files.idFront || !files.idBack || !files.selfie) {
-      console.log('Files received:', files);
       return res.status(400).json({
         success: false,
         message: 'All documents are required (idFront, idBack, selfie)'
       });
     }
 
-    // Delete existing KYC documents
-    await prisma.kycDocument.deleteMany({
-      where: { userId }
-    });
+    await prisma.kycDocument.deleteMany({ where: { userId } });
 
-    // Save new KYC documents
     const documents = await Promise.all([
-      prisma.kycDocument.create({
-        data: {
-          userId,
-          type: 'id_front',
-          filePath: files.idFront[0].filename
-        }
-      }),
-      prisma.kycDocument.create({
-        data: {
-          userId,
-          type: 'id_back',
-          filePath: files.idBack[0].filename
-        }
-      }),
-      prisma.kycDocument.create({
-        data: {
-          userId,
-          type: 'selfie',
-          filePath: files.selfie[0].filename
-        }
-      })
+      prisma.kycDocument.create({ data: { userId, type: 'id_front', filePath: files.idFront[0].filename } }),
+      prisma.kycDocument.create({ data: { userId, type: 'id_back', filePath: files.idBack[0].filename } }),
+      prisma.kycDocument.create({ data: { userId, type: 'selfie', filePath: files.selfie[0].filename } })
     ]);
 
-    // Update user KYC status and get user data
     const user = await prisma.user.update({
       where: { id: userId },
-      data: {
-        kycStatus: 'PENDING',
-        kycSubmittedAt: new Date()
-      }
+      data: { kycStatus: 'PENDING', kycSubmittedAt: new Date() }
     });
 
-    // Send KYC received email
     await emailService.sendKycReceivedEmail(user.email, user.fullName);
 
-    res.json({
-      success: true,
-      message: 'KYC documents uploaded successfully',
-      data: { documents }
-    });
+    res.json({ success: true, message: 'KYC documents uploaded successfully', data: { documents } });
   } catch (error: any) {
     console.error('KYC upload error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to upload KYC documents'
-    });
+    res.status(500).json({ success: false, message: error.message || 'Failed to upload KYC documents' });
   }
 });
 
@@ -130,113 +102,78 @@ apiRouter.post('/transactions/:transactionId/upload', verifyToken, uploadReceipt
 apiRouter.get('/exchange-rate', verifyToken, transactionController.getExchangeRate);
 apiRouter.post('/transactions/:id/cancel', verifyToken, transactionController.cancelTransaction);
 
-// ==================== ADMIN ROUTES ====================
+// ==================== ADMIN & SHARED ROUTES ====================
 
-// Transaction Management (Admin gets all transactions, users get their own)
-apiRouter.get('/transactions', verifyToken, async (req: any, res: any) => {
-  // If admin, use admin controller to get all transactions
-  if (req.user.role === 'ADMIN') {
+// This shared route uses internal logic to differentiate roles. It is kept as is.
+apiRouter.get('/transactions', verifyToken, (req: any, res: any) => {
+  if (VIEW_ROLES_SHARED.includes(req.user.role)) {
     return adminController.getAllTransactions(req, res);
   }
-  // Otherwise, get user's own transactions
   return transactionController.getUserTransactions(req, res);
 });
 
-apiRouter.get('/transactions/:id', verifyToken, async (req: any, res: any) => {
-  // If admin, use admin controller
-  if (req.user.role === 'ADMIN') {
+// This shared route uses internal logic to differentiate roles. It is kept as is.
+apiRouter.get('/transactions/:id', verifyToken, (req: any, res: any) => {
+  if (VIEW_ROLES_SHARED.includes(req.user.role)) {
     return adminController.getTransactionById(req, res);
   }
-  // Otherwise, get user's transaction
   return transactionController.getTransactionById(req, res);
 });
 
-apiRouter.post('/transactions/:id/approve', verifyToken, isAdmin, adminController.approveTransaction);
-apiRouter.post('/transactions/:id/reject', verifyToken, isAdmin, adminController.rejectTransaction);
-apiRouter.post('/transactions/:id/complete', verifyToken, isAdmin, adminController.completeTransaction);
+// Stricter RBAC rules applied as per user request
+apiRouter.post('/admin/transactions/:id/approve', verifyToken, authorize(ADMIN_ROLES), adminController.approveTransaction);
+apiRouter.post('/admin/transactions/:id/reject', verifyToken, authorize(ADMIN_ROLES), adminController.rejectTransaction);
+apiRouter.post('/admin/transactions/:id/complete', verifyToken, authorize(ADMIN_ROLES), adminController.completeTransaction);
 
-// Dashboard Stats
-apiRouter.get('/dashboard/stats', verifyToken, isAdmin, adminController.getDashboardStats);
+apiRouter.get('/admin/dashboard/stats', verifyToken, authorize(ADMIN_ROLES), adminController.getDashboardStats);
 
-// Exchange Rates Management
-apiRouter.get('/exchange-rates', verifyToken, adminController.getExchangeRates);
-apiRouter.post('/exchange-rates', verifyToken, isAdmin, adminController.updateExchangeRate);
+apiRouter.get('/admin/exchange-rates', verifyToken, authorize(ADMIN_ROLES), adminController.getExchangeRates);
+apiRouter.post('/admin/exchange-rates', verifyToken, authorize(ADMIN_ROLES), adminController.updateExchangeRate);
 
-// Currencies
-apiRouter.get('/currencies', verifyToken, isAdmin, adminController.getAllCurrencies);
+apiRouter.get('/admin/currencies', verifyToken, authorize(ADMIN_ROLES), adminController.getAllCurrencies);
 
-// User Management (Admin-only)
-apiRouter.get('/users', verifyToken, isAdmin, adminController.getAllUsers);
-apiRouter.get('/users/:id', verifyToken, isAdmin, adminController.getUserById);
-apiRouter.get('/users/:id/transactions', verifyToken, isAdmin, adminController.getUserTransactions);
-apiRouter.put('/users/:id/status', verifyToken, isAdmin, adminController.toggleUserStatus);
+apiRouter.get('/admin/users', verifyToken, authorize(ADMIN_ROLES), adminController.getAllUsers);
+apiRouter.get('/admin/users/:id', verifyToken, authorize(ADMIN_ROLES), adminController.getUserById);
+apiRouter.get('/admin/users/:id/transactions', verifyToken, authorize(ADMIN_ROLES), adminController.getUserTransactions);
+apiRouter.put('/admin/users/:id/status', verifyToken, authorize(ADMIN_ROLES), adminController.toggleUserStatus);
 
-// KYC Management
-apiRouter.post('/kyc/:docId/approve', verifyToken, isAdmin, adminController.approveKycDocument);
-apiRouter.post('/kyc/:docId/reject', verifyToken, isAdmin, adminController.rejectKycDocument);
+apiRouter.post('/admin/kyc/:docId/approve', verifyToken, authorize(ADMIN_ROLES), adminController.approveKycDocument);
+apiRouter.post('/admin/kyc/:docId/reject', verifyToken, authorize(ADMIN_ROLES), adminController.rejectKycDocument);
 
-// Admin Profile
-apiRouter.get('/profile', verifyToken, isAdmin, adminController.getAdminProfile);
+apiRouter.get('/admin/profile', verifyToken, authorize(ADMIN_ROLES), adminController.getAdminProfile);
+apiRouter.put('/admin/profile', verifyToken, authorize(ADMIN_ROLES), adminController.updateAdminProfile);
 
-// Audit Logs (note: /stats must come before /:id)
-apiRouter.get('/audit-logs', verifyToken, isAdmin, adminController.getAuditLogs);
-apiRouter.get('/audit-logs/stats', verifyToken, isAdmin, adminController.getAuditLogStats);
-apiRouter.get('/audit-logs/:id', verifyToken, isAdmin, adminController.getAuditLogById);
+// Audit Logs & System - SUPER_ADMIN only
+apiRouter.get('/admin/system/audit-logs', verifyToken, authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogs);
+apiRouter.get('/admin/system/audit-logs/stats', verifyToken, authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogStats);
+apiRouter.get('/admin/system/audit-logs/:id', verifyToken, authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogById);
+
+// System Settings - SUPER_ADMIN only
+apiRouter.use('/admin/system', settingsRoutes);
 
 // ==================== NOTIFICATIONS ====================
 
-apiRouter.get('/notifications', verifyToken, async (req: any, res: any) => {
-  // If admin, use admin controller
-  if (req.user.role === 'ADMIN') {
+apiRouter.get('/notifications', verifyToken, (req: any, res: any) => {
+  if (VIEW_ROLES_SHARED.includes(req.user.role)) {
     return adminController.getAdminNotifications(req, res);
   }
-
-  // Otherwise, get user notifications
-  try {
-    const notifications = await prisma.notification.findMany({
-      where: { userId: req.user.id },
-      orderBy: { createdAt: 'desc' },
-      take: 20
-    });
-
-    res.json({
-      success: true,
-      data: notifications
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch notifications'
-    });
-  }
+  
+  prisma.notification.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 20 })
+    .then(notifications => res.json({ success: true, data: notifications }))
+    .catch(() => res.status(500).json({ success: false, message: 'Failed to fetch notifications' }));
 });
 
-apiRouter.post('/notifications/:id/read', verifyToken, async (req: any, res: any) => {
-  // If admin, use admin controller
-  if (req.user.role === 'ADMIN') {
+apiRouter.post('/notifications/:id/read', verifyToken, (req: any, res: any) => {
+  if (VIEW_ROLES_SHARED.includes(req.user.role)) {
     return adminController.markNotificationAsRead(req, res);
   }
-
-  // Otherwise, mark user notification as read
-  try {
-    await prisma.notification.update({
-      where: { id: parseInt(req.params.id) },
-      data: { isRead: true }
-    });
-
-    res.json({
-      success: true,
-      message: 'Notification marked as read'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update notification'
-    });
-  }
+  
+  prisma.notification.update({ where: { id: parseInt(req.params.id), userId: req.user.id }, data: { isRead: true } })
+    .then(() => res.json({ success: true, message: 'Notification marked as read' }))
+    .catch(() => res.status(500).json({ success: false, message: 'Failed to update notification' }));
 });
 
-apiRouter.post('/notifications/read-all', verifyToken, isAdmin, adminController.markAllNotificationsAsRead);
+apiRouter.post('/notifications/read-all', verifyToken, authorize(ADMIN_ROLES), adminController.markAllNotificationsAsRead);
 
 // ==================== HEALTH CHECK ====================
 
@@ -248,7 +185,6 @@ apiRouter.get('/health', (req, res) => {
   });
 });
 
-// Use the apiRouter for all routes starting with /api
 app.use('/api', apiRouter);
 
 // 404 Handler
