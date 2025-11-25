@@ -9,7 +9,8 @@ import {
   Mail,
   FileText,
   ChevronLeft,
-  Clock
+  Clock,
+  Bell
 } from 'lucide-react';
 
 interface SettingCard {
@@ -39,18 +40,25 @@ export default function SettingsPage() {
       color: 'bg-blue-500'
     },
     {
-      title: 'إعدادات الأمان',
-      description: 'إدارة كلمات المرور والمصادقة الثنائية',
-      icon: <Shield className="w-6 h-6" />,
-      href: '/admin/settings/security',
-      color: 'bg-orange-500'
+      title: 'إعدادات الإشعارات',
+      description: 'تكوين إعدادات الإشعارات والتنبيهات',
+      icon: <Bell className="w-6 h-6" />,
+      href: '/admin/settings/notifications',
+      color: 'bg-indigo-500'
     },
     {
       title: 'إعدادات البريد',
       description: 'تكوين SMTP وقوالب البريد الإلكتروني',
       icon: <Mail className="w-6 h-6" />,
-      href: '/admin/settings/email',
+      href: '/admin/settings/smtp',
       color: 'bg-purple-500'
+    },
+    {
+      title: 'السياسات',
+      description: 'إدارة سياسات المنصة والشروط والأحكام',
+      icon: <FileText className="w-6 h-6" />,
+      href: '/admin/settings/policies',
+      color: 'bg-orange-500'
     },
     {
       title: 'سجل التغييرات',
@@ -62,12 +70,7 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6" dir="rtl">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">إعدادات النظام</h1>
-        <p className="text-slate-600 mt-1">إدارة وتكوين إعدادات المنصة</p>
-      </div>
+    <div className="space-y-6">
 
       {/* Settings Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

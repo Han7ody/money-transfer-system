@@ -3,11 +3,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  LayoutDashboard, Users, DollarSign, LogOut, Menu, Bell, ChevronDown,
-  Receipt, Settings, HelpCircle, RefreshCw, Edit3, X, Check, AlertTriangle,
-  Globe, Lock, ArrowRight
+  RefreshCw, Edit3, X, AlertTriangle,
+  Globe, Lock, ArrowRight, Check
 } from 'lucide-react';
-import { adminAPI, authAPI } from '@/lib/api';
+import { adminAPI } from '@/lib/api';
 
 // Types
 interface ExchangeRate {
@@ -75,7 +74,6 @@ const mockGlobalRates: Record<string, number> = {
 
 const ExchangeRatesPage = () => {
   const router = useRouter();
-  const [showSidebar, setShowSidebar] = useState(true);
   const [loading, setLoading] = useState(true);
   const [rates, setRates] = useState<ExchangeRate[]>([]);
   const [error, setError] = useState('');
@@ -224,86 +222,18 @@ const ExchangeRatesPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50" dir="rtl">
-      {/* Sidebar */}
-      <aside className={`fixed right-0 top-0 h-full bg-white border-l border-slate-200 transition-all z-40 ${showSidebar ? 'w-64' : 'w-0'} overflow-hidden`}>
-        <div className="p-5 h-full flex flex-col">
-          <div className="flex items-center gap-3 mb-8 pb-6 border-b border-slate-100">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="font-bold text-slate-900">راصد</h2>
-              <p className="text-xs text-slate-500">لوحة التحكم</p>
-            </div>
-          </div>
-
-          <nav className="flex-1 space-y-1">
-            <button onClick={() => router.push('/admin')} className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <LayoutDashboard className="w-4 h-4" /> الرئيسية
-            </button>
-            <button onClick={() => router.push('/admin/transactions')} className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <Receipt className="w-4 h-4" /> المعاملات
-            </button>
-            <button onClick={() => router.push('/admin/users')} className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <Users className="w-4 h-4" /> المستخدمين
-            </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2.5 bg-indigo-50 text-indigo-700 rounded-lg font-medium text-sm">
-              <Settings className="w-4 h-4" /> الإعدادات
-            </button>
-          </nav>
-
-          <div className="pt-4 border-t border-slate-100 space-y-1">
-            <button className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <HelpCircle className="w-4 h-4" /> المساعدة
-            </button>
-            <button onClick={() => { authAPI.logout(); router.push('/login'); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-rose-600 hover:bg-rose-50 rounded-lg text-sm">
-              <LogOut className="w-4 h-4" /> تسجيل الخروج
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className={`${showSidebar ? 'mr-64' : 'mr-0'} transition-all min-h-screen`}>
-        {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-30">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setShowSidebar(!showSidebar)}
-              className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
-            >
-              <Menu className="w-5 h-5 text-slate-600" />
-            </button>
-            <div className="flex items-center gap-3">
-              <button className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors relative">
-                <Bell className="w-5 h-5 text-slate-600" />
-              </button>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 cursor-pointer">
-                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium text-indigo-600">م</span>
-                </div>
-                <span className="text-sm font-medium text-slate-700">المدير</span>
-                <ChevronDown className="w-4 h-4 text-slate-400" />
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Page Content */}
-        <div className="p-6 space-y-6">
-          {/* Page Header */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg flex items-center justify-center">
-                <RefreshCw className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-slate-900">💱 إعداد سعر الصرف</h1>
-                <p className="text-sm text-slate-500">قم بتعديل أسعار العملات المستخدمة في نظام التحويل.</p>
-              </div>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 text-sm">
+        <button
+          onClick={() => router.push('/admin/settings')}
+          className="text-slate-500 hover:text-indigo-600"
+        >
+          الإعدادات
+        </button>
+        <ArrowRight className="w-4 h-4 text-slate-300 rotate-180" />
+        <span className="text-slate-900 font-medium">أسعار الصرف</span>
+      </div>
 
           {/* Error Message */}
           {error && (
@@ -397,8 +327,6 @@ const ExchangeRatesPage = () => {
               </div>
             )}
           </div>
-        </div>
-      </main>
 
       {/* Edit Modal */}
       <Modal
