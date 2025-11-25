@@ -8,7 +8,12 @@
       "Bash(timeout 20 npm run dev:*)",
       "Bash(npm cache clean:*)",
       "Bash(dir c:money-transfer-systemfrontend*.config.* /b 2)",
-      "Bash(nul)"
+      "Bash(nul)",
+      "Bash(dir:*)",
+      "Bash(mkdir:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(test -f:*)"
     ],
     "deny": [],
     "ask": []

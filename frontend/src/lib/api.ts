@@ -1,7 +1,7 @@
 // frontend/src/lib/api.ts
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.6:5000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 // Create axios instance
 const api = axios.create({
@@ -205,7 +205,7 @@ export const transactionAPI = {
   // 🛑 الدالة المضافة لجلب العملات (مطلوبة في Admin Dashboard)
   getCurrencies: async () => {
     // نستخدم مسار Admin لأنه يتطلب صلاحية جلب العملات كلها
-    const response = await api.get('/admin/currencies');
+    const response = await api.get('/api/currencies');
     return response.data;
   }
 };
@@ -221,12 +221,12 @@ export const adminAPI = {
     dateFrom?: string;
     dateTo?: string;
   }) => {
-    const response = await api.get('/admin/transactions', { params });
+    const response = await api.get('/api/transactions', { params });
     return response.data;
   },
 
   getTransactionById: async (id: string) => {
-    const response = await api.get(`/admin/transactions/${id}`);
+    const response = await api.get(`/api/transactions/${id}`);
     return response.data;
   },
 
@@ -235,7 +235,7 @@ export const adminAPI = {
     paymentReference?: string;
     adminNotes?: string;
   }) => {
-    const response = await api.post(`/admin/transactions/${id}/approve`, data);
+    const response = await api.post(`/api/transactions/${id}/approve`, data);
     return response.data;
   },
 
@@ -243,17 +243,17 @@ export const adminAPI = {
     rejectionReason: string;
     adminNotes?: string;
   }) => {
-    const response = await api.post(`/admin/transactions/${id}/reject`, data);
+    const response = await api.post(`/api/transactions/${id}/reject`, data);
     return response.data;
   },
 
   completeTransaction: async (id: number, data?: { adminNotes?: string }) => {
-    const response = await api.post(`/admin/transactions/${id}/complete`, data);
+    const response = await api.post(`/api/transactions/${id}/complete`, data);
     return response.data;
   },
 
   getDashboardStats: async () => {
-    const response = await api.get('/admin/dashboard/stats');
+    const response = await api.get('/api/dashboard/stats');
     return response.data;
   },
 
@@ -264,12 +264,12 @@ export const adminAPI = {
     adminFeePercent: number;
     password: string;
   }) => {
-    const response = await api.post('/admin/exchange-rates', data);
+    const response = await api.post('/api/exchange-rates', data);
     return response.data;
   },
 
   getExchangeRates: async () => {
-    const response = await api.get('/admin/exchange-rates');
+    const response = await api.get('/api/exchange-rates');
     return response.data;
   },
 
@@ -279,27 +279,27 @@ export const adminAPI = {
     page?: number;
     limit?: number;
   }) => {
-    const response = await api.get('/admin/users', { params });
+    const response = await api.get('/api/users', { params });
     return response.data;
   },
 
   toggleUserStatus: async (userId: number, isActive: boolean) => {
-    const response = await api.put(`/admin/users/${userId}/status`, { isActive });
+    const response = await api.put(`/api/users/${userId}/status`, { isActive });
     return response.data;
   },
 
   approveKycDocument: async (docId: string) => {
-    const response = await api.post(`/admin/kyc/${docId}/approve`);
+    const response = await api.post(`/api/kyc/${docId}/approve`);
     return response.data;
   },
 
   rejectKycDocument: async (docId: string, reason: string) => {
-    const response = await api.post(`/admin/kyc/${docId}/reject`, { reason });
+    const response = await api.post(`/api/kyc/${docId}/reject`, { reason });
     return response.data;
   },
 
   getUserById: async (userId: string) => {
-    const response = await api.get(`/admin/users/${userId}`);
+    const response = await api.get(`/api/users/${userId}`);
     return response.data;
   },
 
@@ -309,29 +309,29 @@ export const adminAPI = {
     sortField?: string;
     sortOrder?: string;
   }) => {
-    const response = await api.get(`/admin/users/${userId}/transactions`, { params });
+    const response = await api.get(`/api/users/${userId}/transactions`, { params });
     return response.data;
   },
 
   // Admin Notifications
   getAdminNotifications: async () => {
-    const response = await api.get('/admin/notifications');
+    const response = await api.get('/api/notifications');
     return response.data;
   },
 
   markNotificationAsRead: async (id: string) => {
-    const response = await api.post(`/admin/notifications/${id}/read`);
+    const response = await api.post(`/api/notifications/${id}/read`);
     return response.data;
   },
 
   markAllNotificationsAsRead: async () => {
-    const response = await api.post('/admin/notifications/read-all');
+    const response = await api.post('/api/notifications/read-all');
     return response.data;
   },
 
   // Admin Profile
   getAdminProfile: async () => {
-    const response = await api.get('/admin/profile');
+    const response = await api.get('/api/profile');
     return response.data;
   },
 
@@ -346,17 +346,17 @@ export const adminAPI = {
     endDate?: string;
     search?: string;
   }) => {
-    const response = await api.get('/admin/audit-logs', { params });
+    const response = await api.get('/api/audit-logs', { params });
     return response.data;
   },
 
   getAuditLogById: async (id: number) => {
-    const response = await api.get(`/admin/audit-logs/${id}`);
+    const response = await api.get(`/api/audit-logs/${id}`);
     return response.data;
   },
 
   getAuditLogStats: async () => {
-    const response = await api.get('/admin/audit-logs/stats');
+    const response = await api.get('/api/audit-logs/stats');
     return response.data;
   }
 };

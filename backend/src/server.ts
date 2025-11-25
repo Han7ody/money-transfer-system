@@ -49,7 +49,7 @@ app.put('/api/users/me/notification-settings', verifyToken, userController.updat
 
 // ==================== KYC ROUTES ====================
 
-app.post('/api/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError, async (req: any, res) => {
+app.post('/api/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError, async (req: any, res: any) => {
   try {
     const userId = req.user.id;
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
@@ -122,50 +122,71 @@ app.post('/api/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError, 
 
 app.post('/api/transactions', verifyToken, transactionController.createTransaction);
 app.post('/api/transactions/:transactionId/upload', verifyToken, uploadReceipt, handleUploadError, transactionController.uploadReceipt);
-app.get('/api/transactions', verifyToken, transactionController.getUserTransactions);
-app.get('/api/transactions/:id', verifyToken, transactionController.getTransactionById);
 app.get('/api/exchange-rate', verifyToken, transactionController.getExchangeRate);
 app.post('/api/transactions/:id/cancel', verifyToken, transactionController.cancelTransaction);
 
 // ==================== ADMIN ROUTES ====================
 
-app.get('/api/admin/transactions', verifyToken, isAdmin, adminController.getAllTransactions);
-app.get('/api/admin/transactions/:id', verifyToken, isAdmin, adminController.getTransactionById);
+// Transaction Management (Admin gets all transactions, users get their own)
+app.get('/api/transactions', verifyToken, async (req: any, res: any) => {
+  // If admin, use admin controller to get all transactions
+  if (req.user.role === 'ADMIN') {
+    return adminController.getAllTransactions(req, res);
+  }
+  // Otherwise, get user's own transactions
+  return transactionController.getUserTransactions(req, res);
+});
 
-// 🛑 المسار المضاف لجلب العملات
-app.get('/api/admin/currencies', verifyToken, isAdmin, adminController.getAllCurrencies);
+app.get('/api/transactions/:id', verifyToken, async (req: any, res: any) => {
+  // If admin, use admin controller
+  if (req.user.role === 'ADMIN') {
+    return adminController.getTransactionById(req, res);
+  }
+  // Otherwise, get user's transaction
+  return transactionController.getTransactionById(req, res);
+});
 
-app.post('/api/admin/transactions/:id/approve', verifyToken, isAdmin, adminController.approveTransaction);
-app.post('/api/admin/transactions/:id/reject', verifyToken, isAdmin, adminController.rejectTransaction);
-app.post('/api/admin/transactions/:id/complete', verifyToken, isAdmin, adminController.completeTransaction);
-app.get('/api/admin/dashboard/stats', verifyToken, isAdmin, adminController.getDashboardStats);
-app.get('/api/admin/exchange-rates', verifyToken, isAdmin, adminController.getExchangeRates);
-app.post('/api/admin/exchange-rates', verifyToken, isAdmin, adminController.updateExchangeRate);
+app.post('/api/transactions/:id/approve', verifyToken, isAdmin, adminController.approveTransaction);
+app.post('/api/transactions/:id/reject', verifyToken, isAdmin, adminController.rejectTransaction);
+app.post('/api/transactions/:id/complete', verifyToken, isAdmin, adminController.completeTransaction);
 
-// Admin User Management Routes
-app.get('/api/admin/users', verifyToken, isAdmin, adminController.getAllUsers);
-app.get('/api/admin/users/:id', verifyToken, isAdmin, adminController.getUserById);
-app.get('/api/admin/users/:id/transactions', verifyToken, isAdmin, adminController.getUserTransactions);
-app.put('/api/admin/users/:id/status', verifyToken, isAdmin, adminController.toggleUserStatus);
+// Dashboard Stats
+app.get('/api/dashboard/stats', verifyToken, isAdmin, adminController.getDashboardStats);
 
-// Admin KYC Management Routes
-app.post('/api/admin/kyc/:docId/approve', verifyToken, isAdmin, adminController.approveKycDocument);
-app.post('/api/admin/kyc/:docId/reject', verifyToken, isAdmin, adminController.rejectKycDocument);
+// Exchange Rates Management
+app.get('/api/exchange-rates', verifyToken, adminController.getExchangeRates);
+app.post('/api/exchange-rates', verifyToken, isAdmin, adminController.updateExchangeRate);
 
-// Admin Notifications & Profile
-app.get('/api/admin/notifications', verifyToken, isAdmin, adminController.getAdminNotifications);
-app.post('/api/admin/notifications/:id/read', verifyToken, isAdmin, adminController.markNotificationAsRead);
-app.post('/api/admin/notifications/read-all', verifyToken, isAdmin, adminController.markAllNotificationsAsRead);
-app.get('/api/admin/profile', verifyToken, isAdmin, adminController.getAdminProfile);
+// Currencies
+app.get('/api/currencies', verifyToken, isAdmin, adminController.getAllCurrencies);
 
-// Admin Audit Logs (note: /stats must come before /:id)
-app.get('/api/admin/audit-logs', verifyToken, isAdmin, adminController.getAuditLogs);
-app.get('/api/admin/audit-logs/stats', verifyToken, isAdmin, adminController.getAuditLogStats);
-app.get('/api/admin/audit-logs/:id', verifyToken, isAdmin, adminController.getAuditLogById);
+// User Management (Admin-only)
+app.get('/api/users', verifyToken, isAdmin, adminController.getAllUsers);
+app.get('/api/users/:id', verifyToken, isAdmin, adminController.getUserById);
+app.get('/api/users/:id/transactions', verifyToken, isAdmin, adminController.getUserTransactions);
+app.put('/api/users/:id/status', verifyToken, isAdmin, adminController.toggleUserStatus);
+
+// KYC Management
+app.post('/api/kyc/:docId/approve', verifyToken, isAdmin, adminController.approveKycDocument);
+app.post('/api/kyc/:docId/reject', verifyToken, isAdmin, adminController.rejectKycDocument);
+
+// Admin Profile
+app.get('/api/profile', verifyToken, isAdmin, adminController.getAdminProfile);
+
+// Audit Logs (note: /stats must come before /:id)
+app.get('/api/audit-logs', verifyToken, isAdmin, adminController.getAuditLogs);
+app.get('/api/audit-logs/stats', verifyToken, isAdmin, adminController.getAuditLogStats);
+app.get('/api/audit-logs/:id', verifyToken, isAdmin, adminController.getAuditLogById);
 
 // ==================== NOTIFICATIONS ====================
 
-app.get('/api/notifications', verifyToken, async (req: any, res) => {
+app.get('/api/notifications', verifyToken, async (req: any, res: any) => {
+  // If admin, use admin controller
+  if (req.user.role === 'ADMIN') {
+    return adminController.getAdminNotifications(req, res);
+  }
+
+  // Otherwise, get user notifications
   try {
     const notifications = await prisma.notification.findMany({
       where: { userId: req.user.id },
@@ -185,7 +206,13 @@ app.get('/api/notifications', verifyToken, async (req: any, res) => {
   }
 });
 
-app.post('/api/notifications/:id/read', verifyToken, async (req: any, res) => {
+app.post('/api/notifications/:id/read', verifyToken, async (req: any, res: any) => {
+  // If admin, use admin controller
+  if (req.user.role === 'ADMIN') {
+    return adminController.markNotificationAsRead(req, res);
+  }
+
+  // Otherwise, mark user notification as read
   try {
     await prisma.notification.update({
       where: { id: parseInt(req.params.id) },
@@ -203,6 +230,8 @@ app.post('/api/notifications/:id/read', verifyToken, async (req: any, res) => {
     });
   }
 });
+
+app.post('/api/notifications/read-all', verifyToken, isAdmin, adminController.markAllNotificationsAsRead);
 
 // ==================== HEALTH CHECK ====================
 
