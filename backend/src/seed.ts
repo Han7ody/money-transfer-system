@@ -147,7 +147,7 @@ async function main() {
     { key: 'logoUrl', value: '', category: 'general', updatedBy: superAdmin.id },
     { key: 'timezone', value: 'Africa/Khartoum', category: 'general', updatedBy: superAdmin.id },
     { key: 'defaultLanguage', value: 'ar', category: 'general', updatedBy: superAdmin.id },
-    { key: 'maintenanceMode', value: 'false', category: 'general', updatedBy: superAdmin.id },
+    { key: 'maintenance_mode', value: 'false', category: 'general', updatedBy: superAdmin.id },
     { key: 'defaultCurrency', value: 'SDG', category: 'general', updatedBy: superAdmin.id },
     { key: 'supportEmail', value: process.env.SUPPORT_EMAIL || 'support@rasid.com', category: 'general', updatedBy: superAdmin.id },
     { key: 'supportPhone', value: '+249 123 456 789', category: 'general', updatedBy: superAdmin.id },

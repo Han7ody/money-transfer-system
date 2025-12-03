@@ -4,6 +4,7 @@ import { jwtVerify } from 'jose';
 
 // The secret key is used to verify the JWT signature.
 const JWT_SECRET = new TextEncoder().encode(process.env.NEXT_PUBLIC_JWT_SECRET || 'your-super-secret-key-change-in-production');
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 /**
  * Verifies a JWT token and returns its payload.
@@ -11,13 +12,36 @@ const JWT_SECRET = new TextEncoder().encode(process.env.NEXT_PUBLIC_JWT_SECRET |
  * @param secret The secret key.
  * @returns The payload if verification is successful, otherwise null.
  */
-async function verify(token: string, secret: Uint8Array): Promise<any> {
+async function verify(token: string, secret: Uint8Array): Promise<Record<string, unknown> | null> {
     try {
         const { payload } = await jwtVerify(token, secret);
-        return payload;
+        return payload as Record<string, unknown>;
     } catch (err) {
         console.error('JWT verification failed:', err);
         return null;
+    }
+}
+
+/**
+ * Check maintenance status from backend
+ */
+async function checkMaintenanceStatus(): Promise<boolean> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/admin/system/settings/maintenance`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            return data.data?.maintenance ?? false;
+        }
+        return false;
+    } catch (error) {
+        console.error('Failed to check maintenance status:', error);
+        return false;
     }
 }
 
@@ -30,16 +54,25 @@ export async function middleware(request: NextRequest) {
     const superAdminSystemPrefix = '/admin/system'; // System-level routes (audit logs, etc.)
     const superAdminSecurityPrefix = '/admin/security'; // Security settings - SUPER_ADMIN only
     const superAdminSettingsRoutes = ['/admin/settings/logs', '/admin/settings/smtp']; // Specific settings for SUPER_ADMIN
-    const userRoutes = ['/dashboard', '/new-transfer', '/transactions', '/profile'];
-    const publicRoutes = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/unauthorized', '/'];
+    const publicRoutes = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/unauthorized', '/maintenance', '/'];
 
-    // Allow access to public routes
+    // Allow access to public routes without checking maintenance
     if (publicRoutes.includes(pathname) || pathname.startsWith('/verify-email')) {
         return NextResponse.next();
     }
     
+    // Check maintenance status for non-public routes
+    const isMaintenanceMode = await checkMaintenanceStatus();
+    
     // If no token, redirect to login for any protected route
     if (!token) {
+        // If maintenance mode is on and route is not admin, redirect to maintenance
+        if (isMaintenanceMode && !pathname.startsWith(adminPrefix)) {
+            const url = request.nextUrl.clone();
+            url.pathname = '/maintenance';
+            return NextResponse.redirect(url);
+        }
+
         const url = request.nextUrl.clone();
         url.pathname = '/login';
         url.searchParams.set('redirect', pathname);
@@ -61,6 +94,13 @@ export async function middleware(request: NextRequest) {
     const userRole = payload.role as string;
     const isSuperAdmin = userRole === 'SUPER_ADMIN';
     const isAdmin = userRole === 'ADMIN' || isSuperAdmin;
+
+    // If maintenance mode is on and user is not admin, redirect to maintenance page
+    if (isMaintenanceMode && !isAdmin && !pathname.startsWith(adminPrefix)) {
+        const url = request.nextUrl.clone();
+        url.pathname = '/maintenance';
+        return NextResponse.redirect(url);
+    }
 
     // Rule 1: /admin/system/** -> ONLY super_admin (audit logs, system settings)
     if (pathname.startsWith(superAdminSystemPrefix)) {

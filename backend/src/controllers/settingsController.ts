@@ -6,8 +6,7 @@ import { logAdminAction, AuditActions, AuditEntities } from '../utils/auditLogge
 import emailService from '../services/emailService';
 import path from 'path';
 import { deleteFile } from '../utils/upload';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 
 // Helper: Transform settings array to object
 const settingsArrayToObject = (settings: any[]): Record<string, any> => {
@@ -25,6 +24,51 @@ const settingsArrayToObject = (settings: any[]): Record<string, any> => {
     }
   });
   return result;
+};
+
+/**
+ * GET: Fetch maintenance mode status
+ * Public endpoint - accessible without authentication
+ */
+export const getMaintenanceFlag = async (req: any, res: Response) => {
+  try {
+    let maintenanceSetting = await prisma.systemSettings.findUnique({
+      where: { key: 'maintenance_mode' }
+    });
+
+    // If record doesn't exist, create it with false value
+    if (!maintenanceSetting) {
+      try {
+        maintenanceSetting = await prisma.systemSettings.create({
+          data: {
+            key: 'maintenance_mode',
+            value: 'false',
+            category: 'general'
+          }
+        });
+      } catch (error) {
+        // Record might have been created by another request, fetch it again
+        maintenanceSetting = await prisma.systemSettings.findUnique({
+          where: { key: 'maintenance_mode' }
+        });
+      }
+    }
+
+    const isMaintenanceMode = maintenanceSetting?.value === 'true';
+
+    res.json({
+      success: true,
+      data: {
+        maintenance: isMaintenanceMode
+      }
+    });
+  } catch (error) {
+    console.error('Get maintenance flag error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'فشل في جلب حالة الصيانة'
+    });
+  }
 };
 
 // GET /admin/system/settings
@@ -69,41 +113,54 @@ export const updateSystemSettings = async (req: AuthRequest, res: Response) => {
 
     const updates = req.body;
 
+    // Whitelist of allowed fields (removed financial fields)
+    const allowedFields = [
+      'platformName',
+      'supportEmail',
+      'supportPhone',
+      'maintenance_mode',
+      'timezone',
+      'companyAddress',
+      'defaultLanguage',
+      'dateFormat',
+      'timeFormat'
+    ];
+
+    // Filter out disallowed fields
+    const filteredUpdates: Record<string, any> = {};
+    allowedFields.forEach((field) => {
+      if (field in updates) {
+        filteredUpdates[field] = updates[field];
+      }
+    });
+
     // Validate required fields
-    if (updates.platformName && typeof updates.platformName !== 'string') {
+    if (filteredUpdates.platformName && typeof filteredUpdates.platformName !== 'string') {
       return res.status(400).json({
         success: false,
         message: 'Invalid platformName'
       });
     }
 
-    if (updates.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.supportEmail)) {
+    if (filteredUpdates.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(filteredUpdates.supportEmail)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid email address'
       });
     }
 
-    if (updates.defaultFeePercent !== undefined) {
-      const fee = Number(updates.defaultFeePercent);
-      if (isNaN(fee) || fee < 0 || fee > 100) {
-        return res.status(400).json({
-          success: false,
-          message: 'Default fee percent must be between 0 and 100'
-        });
-      }
-    }
-
     // Update each setting
-    const updatePromises = Object.entries(updates).map(([key, value]) => {
+    const updatePromises = Object.entries(filteredUpdates).map(([key, value]) => {
+      const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
       return prisma.systemSettings.upsert({
-        where: { key },
+        where: { key: dbKey },
         update: {
           value: String(value),
-          updatedBy: adminId
+          updatedBy: adminId,
+          updatedAt: new Date()
         },
         create: {
-          key,
+          key: dbKey,
           value: String(value),
           category: 'general',
           updatedBy: adminId
@@ -111,28 +168,30 @@ export const updateSystemSettings = async (req: AuthRequest, res: Response) => {
       });
     });
 
-    await prisma.$transaction(updatePromises);
+    await Promise.all(updatePromises);
 
-    // Log audit action
-    await logAdminAction({
-      adminId,
-      action: AuditActions.UPDATE_GENERAL_SETTINGS,
-      entity: AuditEntities.SYSTEM_SETTINGS,
-      oldValue,
-      newValue: updates,
-      req
-    });
+    // Log audit action only if something changed
+    if (Object.keys(filteredUpdates).length > 0) {
+      await logAdminAction({
+        adminId,
+        action: AuditActions.UPDATE_GENERAL_SETTINGS,
+        entity: AuditEntities.SYSTEM_SETTINGS,
+        oldValue,
+        newValue: filteredUpdates,
+        req
+      });
+    }
 
     res.json({
       success: true,
-      message: 'System settings updated successfully',
-      data: updates
+      message: 'تم تحديث الإعدادات بنجاح',
+      data: filteredUpdates
     });
   } catch (error: any) {
     console.error('Update system settings error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update system settings'
+      message: 'فشل في تحديث الإعدادات'
     });
   }
 };

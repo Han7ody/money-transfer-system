@@ -2,14 +2,11 @@
 
 export interface SystemSettings {
   platformName: string;
-  logoUrl: string;
   timezone: string;
   defaultLanguage: 'ar' | 'en';
   maintenanceMode: boolean;
-  defaultCurrency: string;
   supportEmail: string;
   supportPhone: string;
-  defaultFeePercent: number;
   companyAddress: string;
   dateFormat: string;
   timeFormat: string;

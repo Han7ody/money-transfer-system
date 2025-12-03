@@ -8,7 +8,10 @@ const router = express.Router();
 
 const SUPER_ADMIN_ROLE = ['SUPER_ADMIN'];
 
-// All settings routes require SUPER_ADMIN role
+// PUBLIC endpoint - get maintenance status (no auth required)
+router.get('/settings/maintenance', settingsController.getMaintenanceFlag);
+
+// All other settings routes require SUPER_ADMIN role
 router.get(
   '/settings',
   verifyToken,

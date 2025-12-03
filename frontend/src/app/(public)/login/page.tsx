@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useEffect, FormEvent, ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { authAPI } from '@/lib/api';
 import { LogIn, Mail, Lock, AlertCircle, Eye, EyeOff, DollarSign, Shield, Zap } from 'lucide-react';
@@ -10,16 +10,40 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
 
-  const handleSubmit = async (e: any) => {
+  // Check maintenance status on page load
+  useEffect(() => {
+    const checkMaintenanceStatus = async () => {
+      try {
+        const response = await authAPI.getMaintenanceStatus();
+        if (response?.data?.maintenance) {
+          setMaintenanceMode(true);
+        }
+      } catch (err) {
+        console.error('Failed to check maintenance status:', err);
+      }
+    };
+
+    checkMaintenanceStatus();
+  }, []);
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+
+    // Check maintenance mode before attempting login
+    if (maintenanceMode) {
+      setError('النظام تحت الصيانة. لا يمكن تسجيل الدخول حالياً.');
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await authAPI.login(formData.email, formData.password);
       if (response.success) {
         try {
-          // اجلب بيانات المستخدم من ا��مصدر الصحيح وحدث التخزين المحلي
+          // اجلب بيانات المستخدم من المصدر الصحيح وحدث التخزين المحلي
           const me = await authAPI.getCurrentUser();
           if (me?.success && me?.data) {
             localStorage.setItem('user', JSON.stringify(me.data));
@@ -43,13 +67,20 @@ const LoginPage = () => {
       } else {
         setError(response.message || 'فشل تسجيل الدخول. يرجى التحقق من بياناتك.');
       }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'حدث خطأ أثناء محاولة تسجيل الدخول.');
+    } catch (err: unknown) {
+      const error = err as { response?: { status: number; data?: { maintenance?: boolean; message?: string } } };
+      // Check for maintenance mode error in response
+      if (error.response?.status === 503 && error.response?.data?.maintenance) {
+        setMaintenanceMode(true);
+        setError('النظام تحت الصيانة. لا يمكن تسجيل الدخول حالياً.');
+      } else {
+        setError(error.response?.data?.message || 'حدث خطأ أثناء محاولة تسجيل الدخول.');
+      }
     }
     setLoading(false);
   };
 
-  const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
   return (
     <div suppressHydrationWarning className="min-h-screen bg-slate-50 flex items-center justify-center p-4" dir="rtl">
@@ -75,6 +106,13 @@ const LoginPage = () => {
               <p className="text-slate-600">سجل دخولك للوصول إلى حسابك</p>
             </div>
 
+            {maintenanceMode && (
+              <div className="mb-6 p-4 bg-amber-50 border-2 border-amber-200 rounded-xl flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-800 font-medium">النظام تحت الصيانة. سيكون متاحاً قريباً.</p>
+              </div>
+            )}
+
             {error && (
               <div className="mb-6 p-4 bg-rose-50 border-2 border-rose-200 rounded-xl flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
@@ -98,7 +136,7 @@ const LoginPage = () => {
                 <a href="/register" className="text-sm text-indigo-600 hover:text-indigo-700 font-bold">إنشاء حساب جديد</a>
               </div>
 
-              <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3">
+              <button type="submit" disabled={loading || maintenanceMode} className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3">
                 {loading ? (<><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>جاري تسجيل الدخول...</span></>) : (<><span>تسجيل الدخول</span><LogIn className="w-5 h-5" /></>)}
               </button>
             </form>

@@ -163,6 +163,12 @@ export const authAPI = {
     const response = await api.post('/auth/reset-password', data);
     return response.data;
   },
+
+  // Get maintenance status (public endpoint, no auth required)
+  getMaintenanceStatus: async () => {
+    const response = await api.get('/public/system-status');
+    return response.data;
+  },
 };
 
 // ==================== TRANSACTION API ====================
@@ -454,6 +460,11 @@ export const adminAPI = {
 
   testSmtp: async () => {
     const response = await api.post('/admin/system/settings/smtp/test');
+    return response.data;
+  },
+
+  getMaintenanceStatus: async () => {
+    const response = await api.get('/public/system-status');
     return response.data;
   },
 

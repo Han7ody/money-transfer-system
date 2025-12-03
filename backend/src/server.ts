@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import prisma from './lib/prisma';
 import { verifyToken, authorize } from './middleware/auth';
+import { maintenanceMode } from './middleware/maintenance';
 import { uploadReceipt, uploadKycDocuments, handleUploadError } from './middleware/upload';
 import * as transactionController from './controllers/transactionController';
 import * as adminController from './controllers/adminController';
@@ -54,14 +55,92 @@ const VIEW_ROLES_SHARED = ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER'];
 // ==================== AUTH ROUTES ====================
 apiRouter.use('/auth', authRoutes);
 
+// ==================== PUBLIC ENDPOINTS (NO AUTH REQUIRED) ====================
+// These must come before verifyToken middleware
+apiRouter.get('/public/system-status', async (req, res) => {
+  try {
+    const maintenanceSetting = await prisma.systemSettings.findUnique({
+      where: { key: 'maintenance_mode' }
+    });
+
+    // Ensure maintenance_mode record exists, initialize to false if not
+    let isMaintenanceMode = false;
+    if (maintenanceSetting?.value === 'true') {
+      isMaintenanceMode = true;
+    } else if (!maintenanceSetting) {
+      // If record doesn't exist, create it with false value
+      try {
+        await prisma.systemSettings.create({
+          data: {
+            key: 'maintenance_mode',
+            value: 'false',
+            category: 'general'
+          }
+        });
+      } catch (error) {
+        // Record might have been created by another request, that's fine
+        console.log('Could not create maintenance_mode setting:', error);
+      }
+      isMaintenanceMode = false;
+    }
+
+    console.log('[System Status] maintenance_mode record:', maintenanceSetting);
+    console.log('[System Status] isMaintenanceMode:', isMaintenanceMode);
+
+    res.json({
+      success: true,
+      data: {
+        maintenance: isMaintenanceMode
+      }
+    });
+  } catch (error) {
+    console.error('Get system status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch system status'
+    });
+  }
+});
+
+// ==================== DEBUG ENDPOINT ====================
+// Check actual database value (for debugging only)
+apiRouter.get('/debug/maintenance-value', async (req, res) => {
+  try {
+    const allSettings = await prisma.systemSettings.findMany({
+      where: {
+        key: { in: ['maintenance_mode', 'maintenanceMode'] }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        all_maintenance_settings: allSettings,
+        count: allSettings.length
+      }
+    });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({
+      success: false,
+      error: (error as any).message
+    });
+  }
+});
+
+// ==================== MAINTENANCE MODE MIDDLEWARE ====================
+// Apply after auth routes and public endpoints, before protected routes
+apiRouter.use(verifyToken);
+apiRouter.use(maintenanceMode);
+
 // ==================== USER ROUTES ====================
 
-apiRouter.put('/users/me', verifyToken, userController.updateCurrentUser);
-apiRouter.put('/users/me/notification-settings', verifyToken, userController.updateNotificationSettings);
+apiRouter.put('/users/me', userController.updateCurrentUser);
+apiRouter.put('/users/me/notification-settings', userController.updateNotificationSettings);
 
 // ==================== KYC ROUTES ====================
 
-apiRouter.post('/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError, async (req: any, res: any) => {
+apiRouter.post('/kyc/upload', uploadKycDocuments, handleUploadError, async (req: any, res: any) => {
   try {
     const userId = req.user.id;
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
@@ -97,15 +176,15 @@ apiRouter.post('/kyc/upload', verifyToken, uploadKycDocuments, handleUploadError
 
 // ==================== TRANSACTION ROUTES ====================
 
-apiRouter.post('/transactions', verifyToken, transactionController.createTransaction);
-apiRouter.post('/transactions/:transactionId/upload', verifyToken, uploadReceipt, handleUploadError, transactionController.uploadReceipt);
-apiRouter.get('/exchange-rate', verifyToken, transactionController.getExchangeRate);
-apiRouter.post('/transactions/:id/cancel', verifyToken, transactionController.cancelTransaction);
+apiRouter.post('/transactions', transactionController.createTransaction);
+apiRouter.post('/transactions/:transactionId/upload', uploadReceipt, handleUploadError, transactionController.uploadReceipt);
+apiRouter.get('/exchange-rate', transactionController.getExchangeRate);
+apiRouter.post('/transactions/:id/cancel', transactionController.cancelTransaction);
 
 // ==================== ADMIN & SHARED ROUTES ====================
 
 // This shared route uses internal logic to differentiate roles. It is kept as is.
-apiRouter.get('/transactions', verifyToken, (req: any, res: any) => {
+apiRouter.get('/transactions', (req: any, res: any) => {
   if (VIEW_ROLES_SHARED.includes(req.user.role)) {
     return adminController.getAllTransactions(req, res);
   }
@@ -113,7 +192,7 @@ apiRouter.get('/transactions', verifyToken, (req: any, res: any) => {
 });
 
 // This shared route uses internal logic to differentiate roles. It is kept as is.
-apiRouter.get('/transactions/:id', verifyToken, (req: any, res: any) => {
+apiRouter.get('/transactions/:id', (req: any, res: any) => {
   if (VIEW_ROLES_SHARED.includes(req.user.role)) {
     return adminController.getTransactionById(req, res);
   }
@@ -121,39 +200,39 @@ apiRouter.get('/transactions/:id', verifyToken, (req: any, res: any) => {
 });
 
 // Stricter RBAC rules applied as per user request
-apiRouter.post('/admin/transactions/:id/approve', verifyToken, authorize(ADMIN_ROLES), adminController.approveTransaction);
-apiRouter.post('/admin/transactions/:id/reject', verifyToken, authorize(ADMIN_ROLES), adminController.rejectTransaction);
-apiRouter.post('/admin/transactions/:id/complete', verifyToken, authorize(ADMIN_ROLES), adminController.completeTransaction);
+apiRouter.post('/admin/transactions/:id/approve', authorize(ADMIN_ROLES), adminController.approveTransaction);
+apiRouter.post('/admin/transactions/:id/reject', authorize(ADMIN_ROLES), adminController.rejectTransaction);
+apiRouter.post('/admin/transactions/:id/complete', authorize(ADMIN_ROLES), adminController.completeTransaction);
 
-apiRouter.get('/admin/dashboard/stats', verifyToken, authorize(ADMIN_ROLES), adminController.getDashboardStats);
+apiRouter.get('/admin/dashboard/stats', authorize(ADMIN_ROLES), adminController.getDashboardStats);
 
-apiRouter.get('/admin/exchange-rates', verifyToken, authorize(ADMIN_ROLES), adminController.getExchangeRates);
-apiRouter.post('/admin/exchange-rates', verifyToken, authorize(ADMIN_ROLES), adminController.updateExchangeRate);
+apiRouter.get('/admin/exchange-rates', authorize(ADMIN_ROLES), adminController.getExchangeRates);
+apiRouter.post('/admin/exchange-rates', authorize(ADMIN_ROLES), adminController.updateExchangeRate);
 
-apiRouter.get('/admin/currencies', verifyToken, authorize(ADMIN_ROLES), adminController.getAllCurrencies);
+apiRouter.get('/admin/currencies', authorize(ADMIN_ROLES), adminController.getAllCurrencies);
 
-apiRouter.get('/admin/users', verifyToken, authorize(ADMIN_ROLES), adminController.getAllUsers);
-apiRouter.get('/admin/users/:id', verifyToken, authorize(ADMIN_ROLES), adminController.getUserById);
-apiRouter.get('/admin/users/:id/transactions', verifyToken, authorize(ADMIN_ROLES), adminController.getUserTransactions);
-apiRouter.put('/admin/users/:id/status', verifyToken, authorize(ADMIN_ROLES), adminController.toggleUserStatus);
+apiRouter.get('/admin/users', authorize(ADMIN_ROLES), adminController.getAllUsers);
+apiRouter.get('/admin/users/:id', authorize(ADMIN_ROLES), adminController.getUserById);
+apiRouter.get('/admin/users/:id/transactions', authorize(ADMIN_ROLES), adminController.getUserTransactions);
+apiRouter.put('/admin/users/:id/status', authorize(ADMIN_ROLES), adminController.toggleUserStatus);
 
-apiRouter.post('/admin/kyc/:docId/approve', verifyToken, authorize(ADMIN_ROLES), adminController.approveKycDocument);
-apiRouter.post('/admin/kyc/:docId/reject', verifyToken, authorize(ADMIN_ROLES), adminController.rejectKycDocument);
+apiRouter.post('/admin/kyc/:docId/approve', authorize(ADMIN_ROLES), adminController.approveKycDocument);
+apiRouter.post('/admin/kyc/:docId/reject', authorize(ADMIN_ROLES), adminController.rejectKycDocument);
 
-apiRouter.get('/admin/profile', verifyToken, authorize(ADMIN_ROLES), adminController.getAdminProfile);
-apiRouter.put('/admin/profile', verifyToken, authorize(ADMIN_ROLES), adminController.updateAdminProfile);
+apiRouter.get('/admin/profile', authorize(ADMIN_ROLES), adminController.getAdminProfile);
+apiRouter.put('/admin/profile', authorize(ADMIN_ROLES), adminController.updateAdminProfile);
 
 // Audit Logs & System - SUPER_ADMIN only
-apiRouter.get('/admin/system/audit-logs', verifyToken, authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogs);
-apiRouter.get('/admin/system/audit-logs/stats', verifyToken, authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogStats);
-apiRouter.get('/admin/system/audit-logs/:id', verifyToken, authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogById);
+apiRouter.get('/admin/system/audit-logs', authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogs);
+apiRouter.get('/admin/system/audit-logs/stats', authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogStats);
+apiRouter.get('/admin/system/audit-logs/:id', authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogById);
 
 // System Settings - SUPER_ADMIN only
 apiRouter.use('/admin/system', settingsRoutes);
 
 // ==================== NOTIFICATIONS ====================
 
-apiRouter.get('/notifications', verifyToken, (req: any, res: any) => {
+apiRouter.get('/notifications', (req: any, res: any) => {
   if (VIEW_ROLES_SHARED.includes(req.user.role)) {
     return adminController.getAdminNotifications(req, res);
   }
@@ -163,7 +242,7 @@ apiRouter.get('/notifications', verifyToken, (req: any, res: any) => {
     .catch(() => res.status(500).json({ success: false, message: 'Failed to fetch notifications' }));
 });
 
-apiRouter.post('/notifications/:id/read', verifyToken, (req: any, res: any) => {
+apiRouter.post('/notifications/:id/read', (req: any, res: any) => {
   if (VIEW_ROLES_SHARED.includes(req.user.role)) {
     return adminController.markNotificationAsRead(req, res);
   }
@@ -173,7 +252,7 @@ apiRouter.post('/notifications/:id/read', verifyToken, (req: any, res: any) => {
     .catch(() => res.status(500).json({ success: false, message: 'Failed to update notification' }));
 });
 
-apiRouter.post('/notifications/read-all', verifyToken, authorize(ADMIN_ROLES), adminController.markAllNotificationsAsRead);
+apiRouter.post('/notifications/read-all', authorize(ADMIN_ROLES), adminController.markAllNotificationsAsRead);
 
 // ==================== HEALTH CHECK ====================
 

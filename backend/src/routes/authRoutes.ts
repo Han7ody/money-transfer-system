@@ -302,6 +302,41 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    // Check maintenance mode BEFORE allowing login for non-admins
+    const maintenanceSetting = await prisma.systemSettings.findUnique({
+      where: { key: 'maintenance_mode' }
+    });
+    
+    console.log('[Login] Checking maintenance mode...');
+    console.log('[Login] maintenanceSetting:', maintenanceSetting);
+    console.log('[Login] maintenanceSetting?.value:', maintenanceSetting?.value);
+    console.log('[Login] Is string "true"?', maintenanceSetting?.value === 'true');
+    
+    // Ensure maintenance_mode record exists, initialize to false if not
+    let isMaintenanceMode = false;
+    if (maintenanceSetting?.value === 'true') {
+      isMaintenanceMode = true;
+      console.log('[Login] Maintenance mode is ON');
+    } else if (!maintenanceSetting) {
+      console.log('[Login] maintenance_mode record not found, creating...');
+      // If record doesn't exist, create it with false value
+      try {
+        await prisma.systemSettings.create({
+          data: {
+            key: 'maintenance_mode',
+            value: 'false',
+            category: 'general'
+          }
+        });
+      } catch (error) {
+        // Record might have been created by another request, that's fine
+        console.log('Could not create maintenance_mode setting:', error);
+      }
+      isMaintenanceMode = false;
+    } else {
+      console.log('[Login] Maintenance mode is OFF');
+    }
+
     const user = await prisma.user.findUnique({
       where: { email }
     });
@@ -312,6 +347,24 @@ router.post('/login', async (req, res) => {
         message: 'Invalid credentials'
       });
     }
+
+    console.log('[Login] User found:', user.email, 'Role:', user.role);
+    console.log('[Login] isMaintenanceMode:', isMaintenanceMode);
+    console.log('[Login] User role !== ADMIN:', user.role !== 'ADMIN');
+    console.log('[Login] User role !== SUPER_ADMIN:', user.role !== 'SUPER_ADMIN');
+
+    // Block non-admin users during maintenance mode
+    if (isMaintenanceMode && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+      console.log('[Login] BLOCKING user - maintenance is ON and user is not admin');
+      return res.status(503).json({
+        success: false,
+        message: 'The system is currently under maintenance. Please try again later.',
+        maintenance: true,
+        statusCode: 503
+      });
+    }
+
+    console.log('[Login] User allowed to proceed');
 
     if (!user.isActive) {
       return res.status(403).json({

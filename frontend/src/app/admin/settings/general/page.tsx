@@ -10,14 +10,11 @@ import { useAuth } from '@/hooks/useAuth';
 
 const DEFAULT_SETTINGS: SystemSettings = {
   platformName: 'نظام التحويلات المالية',
-  logoUrl: '',
   timezone: 'Africa/Cairo',
   defaultLanguage: 'ar',
   maintenanceMode: false,
-  defaultCurrency: 'EGP',
   supportEmail: 'support@example.com',
   supportPhone: '+20 123 456 7890',
-  defaultFeePercent: 2.5,
   companyAddress: 'القاهرة، مصر',
   dateFormat: 'YYYY-MM-DD',
   timeFormat: '24h'
@@ -32,7 +29,6 @@ export default function GeneralSettingsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
-  const [currencies, setCurrencies] = useState<string[]>([]);
 
   useEffect(() => {
     // RBAC Check - SUPER_ADMIN only
@@ -43,7 +39,6 @@ export default function GeneralSettingsPage() {
 
     if (role === 'SUPER_ADMIN') {
       fetchSettings();
-      fetchCurrencies();
     }
   }, [role, router]);
 
@@ -57,16 +52,6 @@ export default function GeneralSettingsPage() {
       setError(error.response?.data?.message || 'فشل تحميل الإعدادات');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchCurrencies = async () => {
-    try {
-      const response = await apiClient.getCurrencies();
-      setCurrencies(response.data.map((c: any) => c.code));
-    } catch (error) {
-      // Fallback to common currencies
-      setCurrencies(['EGP', 'USD', 'EUR', 'SAR', 'AED']);
     }
   };
 
@@ -95,11 +80,6 @@ export default function GeneralSettingsPage() {
 
     if (!settings.supportEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.supportEmail)) {
       setError('البريد الإلكتروني للدعم غير صحيح');
-      return false;
-    }
-
-    if (settings.defaultFeePercent < 0 || settings.defaultFeePercent > 100) {
-      setError('نسبة العمولة يجب أن تكون بين 0 و 100');
       return false;
     }
 
@@ -221,18 +201,6 @@ export default function GeneralSettingsPage() {
                 required
               />
             </div>
-
-            {/* Logo Uploader */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                شعار المنصة
-              </label>
-              <LogoUploader
-                currentLogo={settings.logoUrl}
-                onUploadSuccess={handleLogoUploadSuccess}
-                onError={handleLogoUploadError}
-              />
-            </div>
           </div>
         </div>
 
@@ -305,47 +273,6 @@ export default function GeneralSettingsPage() {
                   <option key={format} value={format}>{format === '24h' ? '24 ساعة' : '12 ساعة'}</option>
                 ))}
               </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Financial Settings */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">الإعدادات المالية</h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Default Currency */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                <DollarSign className="w-4 h-4 inline ml-1" />
-                العملة الافتراضية
-              </label>
-              <select
-                value={settings.defaultCurrency}
-                onChange={(e) => handleInputChange('defaultCurrency', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                {currencies.map(currency => (
-                  <option key={currency} value={currency}>{currency}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Default Fee Percent */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                نسبة العمولة الافتراضية (%)
-              </label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="100"
-                value={settings.defaultFeePercent}
-                onChange={(e) => handleInputChange('defaultFeePercent', parseFloat(e.target.value))}
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="2.5"
-              />
             </div>
           </div>
         </div>
