@@ -1,0 +1,81 @@
+-- Sprint 4: WhatsApp Support System
+-- Support Requests and Notes Tables
+
+-- ============================================
+-- Support Requests Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS support_requests (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  customer_phone VARCHAR(20) NOT NULL,
+  customer_name VARCHAR(255),
+  issue_category VARCHAR(50) NOT NULL CHECK (issue_category IN ('GENERAL', 'KYC', 'TRANSACTION', 'AGENT', 'COMPLAINT')),
+  issue_description TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'RESOLVED', 'ESCALATED')),
+  assigned_admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  priority VARCHAR(20) DEFAULT 'MEDIUM' CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  resolved_at TIMESTAMP,
+  escalated_at TIMESTAMP
+);
+
+CREATE INDEX idx_support_requests_status ON support_requests(status);
+CREATE INDEX idx_support_requests_category ON support_requests(issue_category);
+CREATE INDEX idx_support_requests_assigned ON support_requests(assigned_admin_id);
+CREATE INDEX idx_support_requests_created ON support_requests(created_at DESC);
+CREATE INDEX idx_support_requests_user ON support_requests(user_id);
+
+-- ============================================
+-- Support Notes Table
+-- ============================================
+CREATE TABLE IF NOT EXISTS support_notes (
+  id SERIAL PRIMARY KEY,
+  support_request_id INTEGER NOT NULL REFERENCES support_requests(id) ON DELETE CASCADE,
+  admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  note_text TEXT NOT NULL,
+  is_internal BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_support_notes_request ON support_notes(support_request_id);
+CREATE INDEX idx_support_notes_created ON support_notes(created_at DESC);
+
+-- ============================================
+-- Update Trigger for support_requests
+-- ============================================
+CREATE OR REPLACE FUNCTION update_support_request_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  
+  -- Set escalated_at when status changes to ESCALATED
+  IF NEW.status = 'ESCALATED' AND OLD.status != 'ESCALATED' THEN
+    NEW.escalated_at = NOW();
+  END IF;
+  
+  -- Set resolved_at when status changes to RESOLVED
+  IF NEW.status = 'RESOLVED' AND OLD.status != 'RESOLVED' THEN
+    NEW.resolved_at = NOW();
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS support_request_update_trigger ON support_requests;
+CREATE TRIGGER support_request_update_trigger
+  BEFORE UPDATE ON support_requests
+  FOR EACH ROW
+  EXECUTE FUNCTION update_support_request_timestamp();
+
+-- ============================================
+-- Comments
+-- ============================================
+COMMENT ON TABLE support_requests IS 'Customer support requests and tickets';
+COMMENT ON TABLE support_notes IS 'Internal notes and communication for support tickets';
+COMMENT ON COLUMN support_requests.issue_category IS 'Category: GENERAL, KYC, TRANSACTION, AGENT, COMPLAINT';
+COMMENT ON COLUMN support_requests.status IS 'Status: OPEN, RESOLVED, ESCALATED';
+COMMENT ON COLUMN support_notes.is_internal IS 'True for internal admin notes, false for customer-visible notes';
+
+SELECT 'Sprint 4 Support System tables created successfully!' AS status;

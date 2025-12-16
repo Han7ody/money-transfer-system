@@ -7,6 +7,7 @@ import {
   Globe, Lock, ArrowRight, Check
 } from 'lucide-react';
 import { adminAPI } from '@/lib/api';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 // Types
 interface ExchangeRate {
@@ -109,7 +110,6 @@ const ExchangeRatesPage = () => {
         setRates(mockRates);
       }
     } catch (err) {
-      console.error('Error fetching rates:', err);
       // Fallback to mock rates
       const mockRates: ExchangeRate[] = currencyPairs.map((pair, index) => ({
         id: index + 1,
@@ -212,7 +212,7 @@ const ExchangeRatesPage = () => {
 
   // Format date
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('ar-SA', {
+    return new Date(date).toLocaleDateString('en-GB', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -222,18 +222,19 @@ const ExchangeRatesPage = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm">
-        <button
-          onClick={() => router.push('/admin/settings')}
-          className="text-slate-500 hover:text-indigo-600"
-        >
-          الإعدادات
-        </button>
-        <ArrowRight className="w-4 h-4 text-slate-300 rotate-180" />
-        <span className="text-slate-900 font-medium">أسعار الصرف</span>
-      </div>
+    <AdminLayout>
+      <div className="space-y-6">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 text-sm">
+          <button
+            onClick={() => router.push('/admin/settings')}
+            className="text-slate-500 hover:text-indigo-600"
+          >
+            الإعدادات
+          </button>
+          <ArrowRight className="w-4 h-4 text-slate-300 rotate-180" />
+          <span className="text-slate-900 font-medium">أسعار الصرف</span>
+        </div>
 
           {/* Error Message */}
           {error && (
@@ -467,7 +468,8 @@ const ExchangeRatesPage = () => {
           </div>
         </div>
       </Modal>
-    </div>
+      </div>
+    </AdminLayout>
   );
 };
 

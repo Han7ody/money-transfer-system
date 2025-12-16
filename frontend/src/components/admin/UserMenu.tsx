@@ -33,39 +33,54 @@ export const UserMenu: React.FC<UserMenuProps> = ({
   const [lastLogin, setLastLogin] = useState<string>('');
   const [adminName, setAdminName] = useState(propAdminName || 'المدير');
   const [adminEmail, setAdminEmail] = useState(propAdminEmail || 'admin@rasid.com');
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+
+  // Function to fetch admin profile
+  const fetchAdminProfile = async () => {
+    try {
+      const response = await adminAPI.getAdminProfile();
+      if (response.success) {
+        setAdminName(response.data.fullName);
+        setAdminEmail(response.data.email);
+        setProfilePicture(response.data.profilePicture || null);
+        if (response.data.lastLoginAt) {
+          setLastLogin(new Date(response.data.lastLoginAt).toLocaleDateString('en-GB', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }));
+        }
+      }
+    } catch (error) {
+      // Silent error handling for profile fetch
+    }
+  };
 
   useEffect(() => {
-    // Fetch admin profile from backend
-    const fetchAdminProfile = async () => {
-      try {
-        const response = await adminAPI.getAdminProfile();
-        if (response.success) {
-          setAdminName(response.data.fullName);
-          setAdminEmail(response.data.email);
-          if (response.data.lastLoginAt) {
-            setLastLogin(new Date(response.data.lastLoginAt).toLocaleString('ar-SA', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            }));
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch admin profile:', error);
-      }
-    };
-
     fetchAdminProfile();
 
+    // Listen for profile picture updates
+    const handleProfileUpdate = () => {
+      fetchAdminProfile();
+    };
+
+    window.addEventListener('profilePictureUpdated', handleProfileUpdate);
+
+    return () => {
+      window.removeEventListener('profilePictureUpdated', handleProfileUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
     // Fallback for last login
     if (!lastLogin) {
       const storedLastLogin = localStorage.getItem('admin_last_login');
       if (storedLastLogin) {
         setLastLogin(storedLastLogin);
       } else {
-        const now = new Date().toLocaleString('ar-SA', {
+        const now = new Date().toLocaleDateString('en-GB', {
           year: 'numeric',
           month: 'short',
           day: 'numeric',
@@ -83,7 +98,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
     if (darkMode) {
       document.documentElement.classList.add('dark');
     }
-  }, []);
+  }, [lastLogin]);
 
   const toggleDarkMode = () => {
     const newMode = !isDarkMode;
@@ -166,11 +181,22 @@ export const UserMenu: React.FC<UserMenuProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 transition-colors"
       >
-        <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-full flex items-center justify-center">
-          <span className="text-sm font-medium text-white">
-            {adminName.charAt(0)}
-          </span>
-        </div>
+        {profilePicture ? (
+          <img
+            src={`http://localhost:5000${profilePicture}`}
+            alt={adminName}
+            className="w-8 h-8 rounded-full object-cover border border-slate-200"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-full flex items-center justify-center">
+            <span className="text-sm font-medium text-white">
+              {adminName.charAt(0)}
+            </span>
+          </div>
+        )}
         <span className="text-sm font-medium text-slate-700 hidden sm:block">
           {adminName}
         </span>

@@ -290,10 +290,10 @@ router.put('/profile', verifyToken, async (req: any, res) => {
   }
 });
 
-// Login
+// Login - Uses authentication pipeline
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, twoFactorToken } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -302,96 +302,29 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Check maintenance mode BEFORE allowing login for non-admins
-    const maintenanceSetting = await prisma.systemSettings.findUnique({
-      where: { key: 'maintenance_mode' }
-    });
-    
-    console.log('[Login] Checking maintenance mode...');
-    console.log('[Login] maintenanceSetting:', maintenanceSetting);
-    console.log('[Login] maintenanceSetting?.value:', maintenanceSetting?.value);
-    console.log('[Login] Is string "true"?', maintenanceSetting?.value === 'true');
-    
-    // Ensure maintenance_mode record exists, initialize to false if not
-    let isMaintenanceMode = false;
-    if (maintenanceSetting?.value === 'true') {
-      isMaintenanceMode = true;
-      console.log('[Login] Maintenance mode is ON');
-    } else if (!maintenanceSetting) {
-      console.log('[Login] maintenance_mode record not found, creating...');
-      // If record doesn't exist, create it with false value
-      try {
-        await prisma.systemSettings.create({
-          data: {
-            key: 'maintenance_mode',
-            value: 'false',
-            category: 'general'
-          }
-        });
-      } catch (error) {
-        // Record might have been created by another request, that's fine
-        console.log('Could not create maintenance_mode setting:', error);
-      }
-      isMaintenanceMode = false;
-    } else {
-      console.log('[Login] Maintenance mode is OFF');
-    }
+    // Use login pipeline for complete authentication flow
+    const { loginPipeline } = await import('../pipelines/loginPipeline');
+    const result = await loginPipeline.execute(
+      { email, password, twoFactorToken },
+      req
+    );
 
-    const user = await prisma.user.findUnique({
-      where: { email }
-    });
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
+    // Check if 2FA is required
+    if (result.requires2FA) {
+      return res.status(200).json({
+        success: true,
+        requires2FA: true,
+        message: 'Two-factor authentication required',
+        data: {
+          user: result.user
+        }
       });
     }
-
-    console.log('[Login] User found:', user.email, 'Role:', user.role);
-    console.log('[Login] isMaintenanceMode:', isMaintenanceMode);
-    console.log('[Login] User role !== ADMIN:', user.role !== 'ADMIN');
-    console.log('[Login] User role !== SUPER_ADMIN:', user.role !== 'SUPER_ADMIN');
-
-    // Block non-admin users during maintenance mode
-    if (isMaintenanceMode && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
-      console.log('[Login] BLOCKING user - maintenance is ON and user is not admin');
-      return res.status(503).json({
-        success: false,
-        message: 'The system is currently under maintenance. Please try again later.',
-        maintenance: true,
-        statusCode: 503
-      });
-    }
-
-    console.log('[Login] User allowed to proceed');
-
-    if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: 'Account is deactivated'
-      });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      role: user.role
-    });
 
     // Set token as HTTP-only cookie
-    res.cookie('token', token, {
+    res.cookie('token', result.token, {
       httpOnly: true,
-      sameSite: 'lax', // Use 'lax' for localhost, 'none' for production with HTTPS
+      sameSite: 'lax',
       secure: false, // Set to true in production with HTTPS
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
@@ -400,20 +333,21 @@ router.post('/login', async (req, res) => {
       success: true,
       message: 'Login successful',
       data: {
-        user: {
-          id: user.id,
-          fullName: user.fullName,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-          isVerified: user.isVerified,
-          kycStatus: user.kycStatus
-        },
-        token
+        user: result.user,
+        token: result.token
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login error:', error);
+    
+    // Handle specific error types
+    if (error.statusCode === 401) {
+      return res.status(401).json({
+        success: false,
+        message: error.message || 'Invalid credentials'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Login failed'

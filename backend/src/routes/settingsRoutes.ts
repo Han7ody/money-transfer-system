@@ -35,11 +35,106 @@ router.post(
   settingsController.uploadSettingsLogo
 );
 
+// SMTP Settings
+router.get(
+  '/settings/smtp',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.getSmtpSettings
+);
+
+router.put(
+  '/settings/smtp',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.updateSmtpSettings
+);
+
 router.post(
   '/settings/smtp/test',
   verifyToken,
   authorize(SUPER_ADMIN_ROLE),
-  settingsController.testSmtpSettings
+  settingsController.testSmtpConnection
+);
+
+// Email Templates
+router.get(
+  '/settings/email-templates',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.getEmailTemplates
+);
+
+router.get(
+  '/settings/email-templates/:id',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.getEmailTemplate
+);
+
+router.put(
+  '/settings/email-templates/:id',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.updateEmailTemplate
+);
+
+router.post(
+  '/settings/email-templates/:id/test',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.testEmailTemplate
+);
+
+// Currencies
+router.get(
+  '/currencies',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.getCurrencies
+);
+
+router.post(
+  '/currencies',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.createCurrency
+);
+
+router.put(
+  '/currencies/:id',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.updateCurrency
+);
+
+router.patch(
+  '/currencies/:id/toggle',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.toggleCurrency
+);
+
+// Policies
+router.get(
+  '/settings/policies',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.getPolicies
+);
+
+router.get(
+  '/settings/policies/:type',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.getPolicy
+);
+
+router.put(
+  '/settings/policies/:type',
+  verifyToken,
+  authorize(SUPER_ADMIN_ROLE),
+  settingsController.updatePolicy
 );
 
 export default router;

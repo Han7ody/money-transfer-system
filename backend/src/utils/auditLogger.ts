@@ -5,13 +5,18 @@ import { Request } from 'express';
 const prisma = new PrismaClient();
 
 export interface AuditLogParams {
-  adminId: number;
+  adminId?: number;
+  userId?: string;
   action: string;
-  entity: string;
+  entity?: string;
   entityId?: string;
   oldValue?: any;
   newValue?: any;
+  details?: any;
   req?: Request;
+  ipAddress?: string;
+  userAgent?: string;
+  sessionId?: string;
 }
 
 /**
@@ -19,43 +24,77 @@ export interface AuditLogParams {
  */
 export const logAdminAction = async ({
   adminId,
+  userId,
   action,
   entity,
   entityId,
   oldValue,
   newValue,
-  req
+  details,
+  req,
+  ipAddress: providedIpAddress,
+  userAgent: providedUserAgent,
+  sessionId
 }: AuditLogParams): Promise<void> => {
   try {
-    // Extract IP address
-    let ipAddress: string | undefined;
-    if (req) {
+    // Validate required fields
+    if (!action) {
+      return;
+    }
+
+    // Extract IP address (use provided or extract from req)
+    let ipAddress: string | undefined = providedIpAddress;
+    if (!ipAddress && req) {
       ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
                   req.socket?.remoteAddress ||
                   req.ip;
     }
 
-    // Extract user agent
-    const userAgent = req?.headers['user-agent'];
+    // Extract user agent (use provided or extract from req)
+    const userAgent = providedUserAgent || req?.headers['user-agent'];
+
+    // Extract session ID from JWT if available
+    let finalSessionId = sessionId;
+    if (!finalSessionId && req && (req as any).user) {
+      finalSessionId = (req as any).user.sessionId || (req as any).user.jti;
+    }
+
+    // Ensure we have either adminId or userId
+    const actorId = adminId || (userId ? parseInt(userId) : null);
 
     await prisma.auditLog.create({
       data: {
-        adminId,
+        adminId: actorId,
         action,
-        entity,
+        entity: entity || null,
         entityId: entityId ? String(entityId) : null,
-        oldValue: oldValue || null,
-        newValue: newValue || null,
+        oldValue: oldValue ? JSON.stringify(oldValue) : null,
+        newValue: newValue ? JSON.stringify(newValue) : null,
         ipAddress: ipAddress || null,
         userAgent: userAgent || null
       }
     });
 
-    console.log(`[AuditLog] ${action} on ${entity} by admin ${adminId}`);
   } catch (error) {
-    console.error('[AuditLog] Failed to create audit log:', error);
     // Don't throw - audit logging should not break the main operation
   }
+};
+
+/**
+ * Simplified audit log function for use with user ID string
+ */
+export const auditLog = async (params: {
+  action: string;
+  userId: string;
+  details?: any;
+  req?: Request;
+}): Promise<void> => {
+  return logAdminAction({
+    userId: params.userId,
+    action: params.action,
+    details: params.details,
+    req: params.req
+  });
 };
 
 // Pre-defined action types for consistency
@@ -84,7 +123,20 @@ export const AuditActions = {
   // Transaction Management
   APPROVE_TRANSACTION: 'APPROVE_TRANSACTION',
   REJECT_TRANSACTION: 'REJECT_TRANSACTION',
-  COMPLETE_TRANSACTION: 'COMPLETE_TRANSACTION'
+  COMPLETE_TRANSACTION: 'COMPLETE_TRANSACTION',
+  ASSIGN_AGENT: 'ASSIGN_AGENT',
+  CONFIRM_PICKUP: 'CONFIRM_PICKUP',
+
+  // Agent Management
+  CREATE_AGENT: 'CREATE_AGENT',
+  UPDATE_AGENT: 'UPDATE_AGENT',
+  UPDATE_AGENT_STATUS: 'UPDATE_AGENT_STATUS',
+  DELETE_AGENT: 'DELETE_AGENT',
+
+  // Generic CRUD actions
+  CREATE: 'CREATE',
+  UPDATE: 'UPDATE',
+  DELETE: 'DELETE'
 };
 
 // Entity types for consistency
@@ -93,7 +145,8 @@ export const AuditEntities = {
   EXCHANGE_RATES: 'ExchangeRates',
   USER: 'User',
   TRANSACTION: 'Transaction',
-  AUTH: 'Auth'
+  AUTH: 'Auth',
+  AGENT: 'Agent'
 };
 
 export default { logAdminAction, AuditActions, AuditEntities };

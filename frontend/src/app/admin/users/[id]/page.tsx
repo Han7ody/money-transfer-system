@@ -2,11 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import {
-  LayoutDashboard, Users, DollarSign, LogOut, Menu, Bell, ChevronDown,
-  Receipt, Settings, HelpCircle, AlertCircle
-} from 'lucide-react';
-import { adminAPI, authAPI } from '@/lib/api';
+import { AlertCircle } from 'lucide-react';
+import { adminAPI } from '@/lib/api';
+import AdminLayout from '@/components/admin/AdminLayout';
 import { UserHeader } from '@/components/admin/UserHeader';
 import { UserActions } from '@/components/admin/UserActions';
 import { UserStats } from '@/components/admin/UserStats';
@@ -14,15 +12,15 @@ import { UserKYCSection } from '@/components/admin/UserKYCSection';
 import { UserTransactionsTable } from '@/components/admin/UserTransactionsTable';
 import { UserAuditLog } from '@/components/admin/UserAuditLog';
 
-// Types
 interface User {
   id: string;
   fullName: string;
   email: string;
   phone: string;
   status: 'active' | 'blocked' | 'under_review';
-  kycStatus: 'verified' | 'pending' | 'rejected' | null;
+  kycStatus: 'verified' | 'pending' | 'rejected' | 'not_submitted' | null;
   tier: 'regular' | 'vip' | 'high_risk';
+  kycSubmittedAt?: string;
 }
 
 interface Stats {
@@ -54,9 +52,9 @@ interface AuditItem {
 
 interface Document {
   id: string;
-  type: 'id_front' | 'id_back' | 'selfie';
+  type: string;
   uploadDate: string;
-  status: 'approved' | 'pending' | 'rejected';
+  status?: 'approved' | 'pending' | 'rejected';
   url: string;
   rejectionReason?: string;
 }
@@ -68,24 +66,18 @@ const CustomerProfilePage = () => {
   const params = useParams();
   const userId = params.id as string;
 
-  const [showSidebar, setShowSidebar] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  // Data states
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [auditLog, setAuditLog] = useState<AuditItem[]>([]);
-
-  // Pagination & sorting for transactions
   const [txPage, setTxPage] = useState(1);
   const [txTotalPages, setTxTotalPages] = useState(1);
   const [txSortField, setTxSortField] = useState('createdAt');
   const [txSortOrder, setTxSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  // Fetch user data
   const fetchUserData = useCallback(async () => {
     try {
       setLoading(true);
@@ -103,7 +95,8 @@ const CustomerProfilePage = () => {
           phone: userData.phone,
           status: userData.status,
           kycStatus: userData.kycStatus,
-          tier: userData.tier
+          tier: userData.tier,
+          kycSubmittedAt: userData.kycSubmittedAt
         });
 
         setStats({
@@ -114,12 +107,18 @@ const CustomerProfilePage = () => {
           fraudRisk: userStats.fraudRisk
         });
 
-        // Set KYC documents with full URL
         if (kycDocuments && kycDocuments.length > 0) {
-          setDocuments(kycDocuments.map((doc: Document) => ({
-            ...doc,
-            url: doc.url.startsWith('http') ? doc.url : `${API_URL.replace('/api', '')}${doc.url}`
-          })));
+          setDocuments(kycDocuments.map((doc: any) => {
+            const imageUrl = doc.frontImageUrl || doc.backImageUrl || doc.url || '';
+            return {
+              id: doc.id,
+              type: doc.type || doc.documentType,
+              uploadDate: doc.uploadDate,
+              status: doc.status || 'pending',
+              url: imageUrl && !imageUrl.startsWith('http') ? `${API_URL.replace('/api', '')}${imageUrl}` : imageUrl,
+              rejectionReason: doc.rejectionReason
+            };
+          }));
         }
 
         setAuditLog(userAudit || []);
@@ -127,14 +126,12 @@ const CustomerProfilePage = () => {
         setError(response.message || 'فشل تحميل بيانات المستخدم');
       }
     } catch (err) {
-      console.error('Error fetching user:', err);
       setError('حدث خطأ أثناء تحميل البيانات');
     } finally {
       setLoading(false);
     }
   }, [userId]);
 
-  // Fetch user transactions
   const fetchTransactions = useCallback(async () => {
     try {
       const response = await adminAPI.getUserTransactions(userId, {
@@ -149,7 +146,7 @@ const CustomerProfilePage = () => {
         setTxTotalPages(response.data.pagination.totalPages);
       }
     } catch (err) {
-      console.error('Error fetching transactions:', err);
+      // Silent error handling for transactions
     }
   }, [userId, txPage, txSortField, txSortOrder]);
 
@@ -172,7 +169,6 @@ const CustomerProfilePage = () => {
         const response = await adminAPI.toggleUserStatus(parseInt(userId), false);
         if (response.success) {
           setUser(prev => prev ? { ...prev, status: 'blocked' } : null);
-          // Refresh audit log
           fetchUserData();
         } else {
           alert('فشل حظر المستخدم');
@@ -190,7 +186,6 @@ const CustomerProfilePage = () => {
         const response = await adminAPI.toggleUserStatus(parseInt(userId), true);
         if (response.success) {
           setUser(prev => prev ? { ...prev, status: 'active' } : null);
-          // Refresh audit log
           fetchUserData();
         } else {
           alert('فشل رفع الحظر');
@@ -209,44 +204,6 @@ const CustomerProfilePage = () => {
     document.getElementById('kyc-section')?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleApproveDoc = async (docId: string) => {
-    try {
-      const response = await adminAPI.approveKycDocument(docId);
-      if (response.success) {
-        setDocuments(prev => prev.map(doc =>
-          doc.id === docId ? { ...doc, status: 'approved' as const } : doc
-        ));
-        // Refresh user data to get updated KYC status
-        if (response.data.kycFullyApproved) {
-          fetchUserData();
-        }
-      } else {
-        alert(response.message || 'فشل في الموافقة على الوثيقة');
-      }
-    } catch (err) {
-      console.error('Error approving document:', err);
-      alert('فشل في الموافقة على الوثيقة');
-    }
-  };
-
-  const handleRejectDoc = async (docId: string, reason: string) => {
-    try {
-      const response = await adminAPI.rejectKycDocument(docId, reason);
-      if (response.success) {
-        setDocuments(prev => prev.map(doc =>
-          doc.id === docId ? { ...doc, status: 'rejected' as const, rejectionReason: reason } : doc
-        ));
-        // Refresh user data to get updated KYC status
-        fetchUserData();
-      } else {
-        alert(response.message || 'فشل في رفض الوثيقة');
-      }
-    } catch (err) {
-      console.error('Error rejecting document:', err);
-      alert('فشل في رفض الوثيقة');
-    }
-  };
-
   const handleSort = (field: string) => {
     if (txSortField === field) {
       setTxSortOrder(txSortOrder === 'asc' ? 'desc' : 'asc');
@@ -258,143 +215,73 @@ const CustomerProfilePage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-500">جاري التحميل...</p>
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-slate-500">جاري التحميل...</p>
+          </div>
         </div>
-      </div>
+      </AdminLayout>
     );
   }
 
   if (error || !user || !stats) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-4" />
-          <p className="text-slate-700 mb-4">{error || 'المستخدم غير موجود'}</p>
-          <button
-            onClick={() => router.push('/admin/users')}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm"
-          >
-            العودة للمستخدمين
-          </button>
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <AlertCircle className="w-16 h-16 text-rose-500 mx-auto mb-4" />
+            <p className="text-slate-700 mb-4">{error || 'المستخدم غير موجود'}</p>
+            <button
+              onClick={() => router.push('/admin/users')}
+              className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              العودة للمستخدمين
+            </button>
+          </div>
         </div>
-      </div>
+      </AdminLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50" dir="rtl">
-      {/* Sidebar */}
-      <aside className={`fixed right-0 top-0 h-full bg-white border-l border-slate-200 transition-all z-40 ${showSidebar ? 'w-64' : 'w-0'} overflow-hidden`}>
-        <div className="p-5 h-full flex flex-col">
-          <div className="flex items-center gap-3 mb-8 pb-6 border-b border-slate-100">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="font-bold text-slate-900">راصد</h2>
-              <p className="text-xs text-slate-500">لوحة التحكم</p>
-            </div>
-          </div>
+    <AdminLayout>
+      <div className="space-y-6">
+        <UserHeader user={user} />
 
-          <nav className="flex-1 space-y-1">
-            <button onClick={() => router.push('/admin')} className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <LayoutDashboard className="w-4 h-4" /> الرئيسية
-            </button>
-            <button onClick={() => router.push('/admin/transactions')} className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <Receipt className="w-4 h-4" /> المعاملات
-            </button>
-            <button onClick={() => router.push('/admin/users')} className="w-full flex items-center gap-3 px-3 py-2.5 bg-indigo-50 text-indigo-700 rounded-lg font-medium text-sm">
-              <Users className="w-4 h-4" /> المستخدمين
-            </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <Settings className="w-4 h-4" /> الإعدادات
-            </button>
-          </nav>
+        <UserActions
+          userId={userId}
+          isBlocked={user.status === 'blocked'}
+          onBlock={handleBlock}
+          onUnblock={handleUnblock}
+          onSendNotification={handleSendNotification}
+          onManageKYC={handleManageKYC}
+        />
 
-          <div className="pt-4 border-t border-slate-100 space-y-1">
-            <button className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <HelpCircle className="w-4 h-4" /> المساعدة
-            </button>
-            <button onClick={() => { authAPI.logout(); router.push('/login'); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-rose-600 hover:bg-rose-50 rounded-lg text-sm">
-              <LogOut className="w-4 h-4" /> تسجيل الخروج
-            </button>
-          </div>
-        </div>
-      </aside>
+        <UserStats stats={stats} />
 
-      {/* Main Content */}
-      <main className={`${showSidebar ? 'mr-64' : 'mr-0'} transition-all min-h-screen`}>
-        {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-30">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setShowSidebar(!showSidebar)}
-              className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
-            >
-              <Menu className="w-5 h-5 text-slate-600" />
-            </button>
-            <div className="flex items-center gap-3">
-              <button className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors relative">
-                <Bell className="w-5 h-5 text-slate-600" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>
-              </button>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 cursor-pointer">
-                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium text-indigo-600">م</span>
-                </div>
-                <span className="text-sm font-medium text-slate-700">المدير</span>
-                <ChevronDown className="w-4 h-4 text-slate-400" />
-              </div>
-            </div>
-          </div>
-        </header>
+        <UserKYCSection
+          userId={userId}
+          kycStatus={user.kycStatus}
+          documents={documents}
+          fraudRisk={stats.fraudRisk}
+          lastUpdated={user.kycSubmittedAt}
+        />
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* User Header */}
-          <UserHeader user={user} />
+        <UserTransactionsTable
+          transactions={transactions}
+          page={txPage}
+          totalPages={txTotalPages}
+          onPageChange={setTxPage}
+          onSort={handleSort}
+          sortField={txSortField}
+          sortOrder={txSortOrder}
+        />
 
-          {/* Actions Bar */}
-          <UserActions
-            userId={userId}
-            isBlocked={user.status === 'blocked'}
-            onBlock={handleBlock}
-            onUnblock={handleUnblock}
-            onSendNotification={handleSendNotification}
-            onManageKYC={handleManageKYC}
-          />
-
-          {/* Stats */}
-          <UserStats stats={stats} />
-
-          {/* KYC Documents */}
-          <div id="kyc-section">
-            <UserKYCSection
-              documents={documents}
-              onApprove={handleApproveDoc}
-              onReject={handleRejectDoc}
-            />
-          </div>
-
-          {/* Transactions Table */}
-          <UserTransactionsTable
-            transactions={transactions}
-            page={txPage}
-            totalPages={txTotalPages}
-            onPageChange={setTxPage}
-            onSort={handleSort}
-            sortField={txSortField}
-            sortOrder={txSortOrder}
-          />
-
-          {/* Audit Log */}
-          <UserAuditLog auditLog={auditLog} />
-        </div>
-      </main>
-    </div>
+        <UserAuditLog auditLog={auditLog} />
+      </div>
+    </AdminLayout>
   );
 };
 

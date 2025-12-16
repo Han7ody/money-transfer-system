@@ -13,6 +13,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { adminAPI } from '@/lib/api';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 interface AdminProfile {
   id: number;
@@ -21,6 +22,7 @@ interface AdminProfile {
   phone: string | null;
   role: string;
   createdAt: string;
+  profilePicture?: string | null;
 }
 
 export default function AdminProfilePage() {
@@ -28,6 +30,7 @@ export default function AdminProfilePage() {
   const [profile, setProfile] = useState<AdminProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingPicture, setUploadingPicture] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -53,7 +56,6 @@ export default function AdminProfilePage() {
         setError(response.message || 'فشل في تحميل الملف الشخصي');
       }
     } catch (err: any) {
-      console.error('Error fetching profile:', err);
       setError(err.response?.data?.message || 'حدث خطأ أثناء تحميل الملف الشخصي');
     } finally {
       setLoading(false);
@@ -88,10 +90,55 @@ export default function AdminProfilePage() {
         setError(response.message || 'فشل في تحديث الملف الشخصي');
       }
     } catch (err: any) {
-      console.error('Error updating profile:', err);
       setError(err.response?.data?.message || 'حدث خطأ أثناء تحديث الملف الشخصي');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleProfilePictureChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError('يرجى اختيار ملف صورة');
+      return;
+    }
+
+    // Validate file size (2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setError('حجم الصورة يجب أن يكون أقل من 2 ميجابايت');
+      return;
+    }
+
+    try {
+      setUploadingPicture(true);
+      setError('');
+      setSuccess('');
+
+      const response = await adminAPI.updateProfilePicture(file);
+
+      if (response.success) {
+        setSuccess('تم تحديث الصورة الشخصية بنجاح');
+        // Update profile with new picture
+        if (profile) {
+          setProfile({
+            ...profile,
+            profilePicture: response.data.profilePicture
+          });
+        }
+        // Notify UserMenu to refresh
+        window.dispatchEvent(new CustomEvent('profilePictureUpdated'));
+        // Clear success message after 3 seconds
+        setTimeout(() => setSuccess(''), 3000);
+      } else {
+        setError(response.message || 'فشل في تحديث الصورة الشخصية');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'حدث خطأ أثناء تحديث الصورة الشخصية');
+    } finally {
+      setUploadingPicture(false);
     }
   };
 
@@ -150,8 +197,9 @@ export default function AdminProfilePage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Success Message */}
+    <AdminLayout>
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Success Message */}
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
           <div className="w-2 h-2 bg-green-500 rounded-full"></div>
@@ -177,22 +225,44 @@ export default function AdminProfilePage() {
         <form onSubmit={handleUpdateProfile} className="p-6 space-y-6">
           {/* Profile Picture Section */}
           <div className="flex items-center gap-4 pb-6 border-b border-slate-100">
-            <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-full flex items-center justify-center">
-              <span className="text-2xl font-bold text-white">
-                {profile.fullName.charAt(0)}
-              </span>
+            <div className="relative">
+              {profile.profilePicture ? (
+                <img
+                  src={`http://localhost:5000${profile.profilePicture}`}
+                  alt={profile.fullName}
+                  className="w-20 h-20 rounded-full object-cover border-2 border-slate-200"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ) : (
+                <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-full flex items-center justify-center">
+                  <span className="text-2xl font-bold text-white">
+                    {profile.fullName.charAt(0)}
+                  </span>
+                </div>
+              )}
+              {uploadingPicture && (
+                <div className="absolute inset-0 bg-black bg-opacity-50 rounded-full flex items-center justify-center">
+                  <Loader2 className="w-6 h-6 animate-spin text-white" />
+                </div>
+              )}
             </div>
             <div className="flex-1">
               <h3 className="font-semibold text-slate-900">{profile.fullName}</h3>
               <p className="text-sm text-slate-500">{profile.email}</p>
             </div>
-            <button
-              type="button"
-              className="flex items-center gap-2 px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-            >
+            <label className="flex items-center gap-2 px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">
               <Camera className="w-4 h-4" />
               تحديث الصورة
-            </button>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleProfilePictureChange}
+                className="hidden"
+                disabled={uploadingPicture}
+              />
+            </label>
           </div>
 
           {/* Full Name Field */}
@@ -303,6 +373,7 @@ export default function AdminProfilePage() {
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

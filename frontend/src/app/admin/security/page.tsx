@@ -4,6 +4,7 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock, History, Monitor, ShieldCheck, KeyRound } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 export default function SecurityPage() {
   const router = useRouter();
@@ -51,8 +52,9 @@ export default function SecurityPage() {
   );
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <AdminLayout>
+      <div className="space-y-6">
+        {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900 mb-2">إعدادات الأمان</h1>
         <p className="text-slate-600">
@@ -104,6 +106,7 @@ export default function SecurityPage() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

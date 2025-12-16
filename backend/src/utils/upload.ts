@@ -79,7 +79,6 @@ export const deleteFile = (filePath: string): boolean => {
     }
     return false;
   } catch (error) {
-    console.error('Error deleting file:', error);
     return false;
   }
 };

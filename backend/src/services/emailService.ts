@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { getActiveSmtpConfig } from './smtpConfigService';
 
 // Email templates data
 const templates = {
@@ -283,18 +284,74 @@ If you need assistance, please contact our support team.
 Best regards,
 The Rasid Team`
     }
+  },
+  account_suspension: {
+    ar: {
+      subject: 'تعليق حسابك مؤقتاً - راصد',
+      body: `عزيزي {{name}}،
+
+نأسف لإبلاغك بأنه تم تعليق حسابك مؤقتاً بسبب نشاط مشبوه تم اكتشافه.
+
+تفاصيل التعليق:
+- رقم القضية: {{case_number}}
+- تاريخ التعليق: {{suspension_date}}
+- السبب: {{reason}}
+
+ما يعنيه هذا:
+• لن تتمكن من الوصول إلى حسابك مؤقتاً
+• جميع المعاملات المعلقة تم إيقافها
+• سيتم مراجعة حسابك من قبل فريق الامتثال
+
+الخطوات التالية:
+1. سيقوم فريقنا بمراجعة حسابك خلال 3-5 أيام عمل
+2. قد نطلب منك تقديم مستندات إضافية
+3. سيتم إشعارك بنتيجة المراجعة عبر البريد الإلكتروني
+
+إذا كان لديك أي استفسارات أو تعتقد أن هذا خطأ، يرجى التواصل مع فريق الدعم على الفور.
+
+مع تحيات،
+فريق راصد للامتثال`
+    },
+    en: {
+      subject: 'Account Temporarily Suspended - Rasid',
+      body: `Dear {{name}},
+
+We regret to inform you that your account has been temporarily suspended due to suspicious activity detected.
+
+Suspension Details:
+- Case Number: {{case_number}}
+- Suspension Date: {{suspension_date}}
+- Reason: {{reason}}
+
+What this means:
+• You will not be able to access your account temporarily
+• All pending transactions have been halted
+• Your account will be reviewed by our compliance team
+
+Next Steps:
+1. Our team will review your account within 3-5 business days
+2. We may request additional documentation from you
+3. You will be notified of the review outcome via email
+
+If you have any questions or believe this is an error, please contact our support team immediately.
+
+Best regards,
+Rasid Compliance Team`
+    }
   }
 };
 
-// Create transporter
-const createTransporter = () => {
+// Create transporter with database config or fallback to env
+const createTransporter = async () => {
+  const config = await getActiveSmtpConfig();
+  
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
+    host: config.host,
+    port: config.port,
+    secure: config.encryption === 'SSL',
     auth: {
-      user: process.env.SMTP_USER || process.env.EMAIL_USER,
-      pass: process.env.SMTP_PASS || process.env.EMAIL_PASSWORD
+      user: config.username,
+      pass: config.password
     }
   });
 };
@@ -368,10 +425,18 @@ ${body}
 
 // Email service class
 class EmailService {
-  private transporter: nodemailer.Transporter;
+  private transporter: nodemailer.Transporter | null = null;
 
-  constructor() {
-    this.transporter = createTransporter();
+  async getTransporter() {
+    if (!this.transporter) {
+      this.transporter = await createTransporter();
+    }
+    return this.transporter;
+  }
+
+  // Refresh transporter (call after SMTP config changes)
+  async refreshTransporter() {
+    this.transporter = await createTransporter();
   }
 
   async sendEmail(
@@ -383,7 +448,6 @@ class EmailService {
     try {
       const template = templates[templateName]?.[language];
       if (!template) {
-        console.error(`Template ${templateName} not found for language ${language}`);
         return false;
       }
 
@@ -391,20 +455,19 @@ class EmailService {
       const body = replaceVariables(template.body, variables);
       const html = generateHtmlEmail(body, language === 'ar');
 
-      const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER || process.env.EMAIL_USER;
+      const config = await getActiveSmtpConfig();
+      const transporter = await this.getTransporter();
 
-      await this.transporter.sendMail({
-        from: `"Rasid راصد" <${fromEmail}>`,
+      await transporter.sendMail({
+        from: `"${config.fromName}" <${config.fromEmail}>`,
         to,
         subject,
         text: body,
         html
       });
 
-      console.log(`Email sent successfully to ${to}: ${templateName}`);
       return true;
     } catch (error) {
-      console.error('Error sending email:', error);
       return false;
     }
   }
@@ -427,6 +490,10 @@ class EmailService {
   }
 
   async sendKycRejectedEmail(to: string, name: string, reason: string, language: 'ar' | 'en' = 'ar') {
+    return this.sendEmail(to, 'kyc_rejected', { name, reason }, language);
+  }
+
+  async sendKycMoreDocsEmail(to: string, name: string, reason: string, language: 'ar' | 'en' = 'ar') {
     return this.sendEmail(to, 'kyc_rejected', { name, reason }, language);
   }
 
@@ -477,6 +544,169 @@ class EmailService {
     language: 'ar' | 'en' = 'ar'
   ) {
     return this.sendEmail(to, 'transaction_failed', variables, language);
+  }
+
+  /**
+   * Send raw HTML email (for testing and custom emails)
+   */
+  async sendRawEmail(options: {
+    to: string;
+    subject: string;
+    html: string;
+  }): Promise<boolean> {
+    try {
+      const config = await getActiveSmtpConfig();
+      const transporter = await this.getTransporter();
+
+      await transporter.sendMail({
+        from: `"${config.fromName}" <${config.fromEmail}>`,
+        to: options.to,
+        subject: options.subject,
+        html: options.html
+      });
+
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // Send agent assigned email
+  async sendAgentAssignedEmail(
+    to: string,
+    userName: string,
+    details: {
+      transactionRef: string;
+      agentName: string;
+      agentPhone: string;
+      agentWhatsapp: string;
+      pickupCity: string;
+      pickupCode: string;
+      amount: string;
+    }
+  ): Promise<boolean> {
+    const subject = `تم تعيين وكيل لمعاملتك - ${details.transactionRef}`;
+    const html = `
+      <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+        <div style="background-color: white; border-radius: 8px; padding: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <h2 style="color: #4f46e5; margin-bottom: 20px;">مرحباً ${userName}،</h2>
+          
+          <p style="color: #374151; font-size: 16px; line-height: 1.6;">
+            تم تعيين وكيل لاستلام معاملتك <strong>${details.transactionRef}</strong>
+          </p>
+
+          <div style="background-color: #f3f4f6; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="color: #1f2937; margin-top: 0;">معلومات الوكيل:</h3>
+            <p style="margin: 10px 0;"><strong>الاسم:</strong> ${details.agentName}</p>
+            <p style="margin: 10px 0;"><strong>الهاتف:</strong> ${details.agentPhone}</p>
+            <p style="margin: 10px 0;"><strong>واتساب:</strong> ${details.agentWhatsapp}</p>
+            <p style="margin: 10px 0;"><strong>المدينة:</strong> ${details.pickupCity}</p>
+          </div>
+
+          <div style="background-color: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="color: #92400e; margin-top: 0;">رمز الاستلام:</h3>
+            <p style="font-size: 32px; font-weight: bold; color: #92400e; text-align: center; margin: 10px 0; letter-spacing: 4px;">
+              ${details.pickupCode}
+            </p>
+            <p style="color: #92400e; font-size: 14px; text-align: center;">
+              احتفظ بهذا الرمز سرياً ولا تشاركه إلا مع الوكيل عند الاستلام
+            </p>
+          </div>
+
+          <div style="background-color: #dbeafe; border-radius: 8px; padding: 15px; margin: 20px 0;">
+            <p style="color: #1e40af; margin: 0;">
+              <strong>المبلغ المستحق:</strong> ${details.amount}
+            </p>
+          </div>
+
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 20px;">
+            <h4 style="color: #1f2937;">تعليمات الاستلام:</h4>
+            <ol style="color: #374151; line-height: 1.8;">
+              <li>تواصل مع الوكيل لتحديد موعد الاستلام</li>
+              <li>احضر معك بطاقة الهوية الشخصية</li>
+              <li>أعط الوكيل رمز الاستلام المذكور أعلاه</li>
+              <li>تأكد من عد المبلغ قبل مغادرة الوكيل</li>
+            </ol>
+          </div>
+
+          <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
+            مع تحيات،<br>
+            فريق راصد
+          </p>
+        </div>
+      </div>
+    `;
+
+    return this.sendRawEmail({ to, subject, html });
+  }
+
+  // Send transaction completed email (overload for cash pickup)
+  async sendCashPickupCompletedEmail(
+    to: string,
+    userName: string,
+    details: {
+      transactionRef: string;
+      amount: string;
+      recipientName: string;
+      completedAt: string;
+    }
+  ): Promise<boolean> {
+    const subject = `تم إكمال معاملتك بنجاح - ${details.transactionRef}`;
+    const html = `
+      <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+        <div style="background-color: white; border-radius: 8px; padding: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <div style="display: inline-block; background-color: #10b981; border-radius: 50%; padding: 15px;">
+              <span style="font-size: 40px;">✓</span>
+            </div>
+          </div>
+
+          <h2 style="color: #10b981; text-align: center; margin-bottom: 20px;">تم إكمال المعاملة بنجاح!</h2>
+          
+          <p style="color: #374151; font-size: 16px; line-height: 1.6; text-align: center;">
+            مرحباً ${userName}،<br>
+            تم تسليم المبلغ بنجاح إلى ${details.recipientName}
+          </p>
+
+          <div style="background-color: #f3f4f6; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="color: #1f2937; margin-top: 0;">تفاصيل المعاملة:</h3>
+            <p style="margin: 10px 0;"><strong>رقم المعاملة:</strong> ${details.transactionRef}</p>
+            <p style="margin: 10px 0;"><strong>المبلغ المستلم:</strong> ${details.amount}</p>
+            <p style="margin: 10px 0;"><strong>المستلم:</strong> ${details.recipientName}</p>
+            <p style="margin: 10px 0;"><strong>تاريخ الإكمال:</strong> ${new Date(details.completedAt).toLocaleString('ar-SA')}</p>
+          </div>
+
+          <div style="background-color: #dbeafe; border-radius: 8px; padding: 15px; margin: 20px 0; text-align: center;">
+            <p style="color: #1e40af; margin: 0;">
+              شكراً لاستخدامك راصد لتحويل الأموال
+            </p>
+          </div>
+
+          <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
+            مع تحيات،<br>
+            فريق راصد
+          </p>
+        </div>
+      </div>
+    `;
+
+    return this.sendRawEmail({ to, subject, html });
+  }
+
+  /**
+   * Send account suspension notification email
+   */
+  async sendAccountSuspensionEmail(
+    to: string,
+    variables: {
+      name: string;
+      case_number: string;
+      suspension_date: string;
+      reason: string;
+    },
+    language: 'ar' | 'en' = 'ar'
+  ) {
+    return this.sendEmail(to, 'account_suspension', variables, language);
   }
 }
 

@@ -24,7 +24,7 @@ export const UserStats: React.FC<UserStatsProps> = ({ stats }) => {
 
   const formatDate = (date: string | null) => {
     if (!date) return 'لا يوجد';
-    return new Date(date).toLocaleDateString('ar-SA', {
+    return new Date(date).toLocaleDateString('en-GB', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'

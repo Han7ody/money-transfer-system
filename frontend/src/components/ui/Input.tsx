@@ -1,51 +1,51 @@
-'use client';
-
-import React, { forwardRef } from 'react';
-import { LucideIcon } from 'lucide-react';
+import React from 'react';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
-  icon?: LucideIcon;
-  hint?: string;
+  helperText?: string;
+  icon?: React.ReactNode;
 }
 
-export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, icon: Icon, hint, className = '', ...props }, ref) => {
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ label, error, helperText, icon, className = '', ...props }, ref) => {
     return (
       <div className="w-full">
         {label && (
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
             {label}
-            {props.required && <span className="text-rose-500 mr-1">*</span>}
           </label>
         )}
         <div className="relative">
-          {Icon && (
-            <Icon className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          {icon && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+              {icon}
+            </div>
           )}
           <input
             ref={ref}
             className={`
-              w-full px-4 py-3 text-sm border rounded-xl
-              transition-colors duration-200
+              w-full px-4 py-2.5 
+              bg-white dark:bg-slate-800
+              border border-slate-300 dark:border-slate-600
+              rounded-lg
+              text-slate-900 dark:text-slate-100
+              placeholder:text-slate-400 dark:placeholder:text-slate-500
               focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-              disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed
-              ${Icon ? 'pr-10' : ''}
-              ${error
-                ? 'border-rose-300 bg-rose-50 text-rose-900 placeholder-rose-300'
-                : 'border-slate-200 bg-white text-slate-900 placeholder-slate-400'
-              }
+              disabled:opacity-50 disabled:cursor-not-allowed
+              transition-all duration-200
+              ${icon ? 'pr-10' : ''}
+              ${error ? 'border-red-500 focus:ring-red-500' : ''}
               ${className}
             `}
             {...props}
           />
         </div>
         {error && (
-          <p className="mt-1.5 text-sm text-rose-600">{error}</p>
+          <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{error}</p>
         )}
-        {hint && !error && (
-          <p className="mt-1.5 text-xs text-slate-500">{hint}</p>
+        {helperText && !error && (
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">{helperText}</p>
         )}
       </div>
     );
@@ -54,4 +54,48 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
 Input.displayName = 'Input';
 
-export default Input;
+interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label?: string;
+  error?: string;
+  helperText?: string;
+}
+
+export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
+  ({ label, error, helperText, className = '', ...props }, ref) => {
+    return (
+      <div className="w-full">
+        {label && (
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+            {label}
+          </label>
+        )}
+        <textarea
+          ref={ref}
+          className={`
+            w-full px-4 py-2.5 
+            bg-white dark:bg-slate-800
+            border border-slate-300 dark:border-slate-600
+            rounded-lg
+            text-slate-900 dark:text-slate-100
+            placeholder:text-slate-400 dark:placeholder:text-slate-500
+            focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+            disabled:opacity-50 disabled:cursor-not-allowed
+            transition-all duration-200
+            resize-none
+            ${error ? 'border-red-500 focus:ring-red-500' : ''}
+            ${className}
+          `}
+          {...props}
+        />
+        {error && (
+          <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{error}</p>
+        )}
+        {helperText && !error && (
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">{helperText}</p>
+        )}
+      </div>
+    );
+  }
+);
+
+Textarea.displayName = 'Textarea';

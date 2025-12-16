@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import {
   ChevronLeft, ChevronRight, Download, RefreshCw
 } from 'lucide-react';
+import { Pagination } from '@/components/ui';
 import { adminAPI } from '@/lib/api';
 import { UserFilters } from '@/components/admin/UserFilters';
 import { UserTable } from '@/components/admin/UserTable';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 interface User {
   id: string;
@@ -75,7 +77,6 @@ const UsersManagementPage = () => {
         setTotalCount(response.data.pagination?.total || response.data.total || transformedUsers.length);
       }
     } catch (err) {
-      console.error('Error fetching users:', err);
       setError('فشل تحميل المستخدمين');
     } finally {
       setLoading(false);
@@ -113,15 +114,16 @@ const UsersManagementPage = () => {
   const endItem = Math.min(page * limit, totalCount);
 
   return (
-    <div className="space-y-6">
-          {/* Page Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">إدارة المستخدمين</h1>
-              <p className="text-sm text-slate-500 mt-1">
-                عرض وإدارة حسابات المستخدمين والتحكم في الصلاحيات
-              </p>
-            </div>
+    <AdminLayout>
+      <div className="space-y-6">
+        {/* Page Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">إدارة المستخدمين</h1>
+            <p className="text-slate-600 mt-1">
+              عرض وإدارة حسابات المستخدمين والتحكم في الصلاحيات
+            </p>
+          </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={fetchUsers}
@@ -164,60 +166,18 @@ const UsersManagementPage = () => {
 
           {/* Pagination */}
           {totalCount > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-slate-500">
-                  عرض {startItem}–{endItem} من {totalCount} مستخدم
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-
-                  {/* Page numbers */}
-                  {[...Array(Math.min(5, totalPages))].map((_, i) => {
-                    let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (page <= 3) {
-                      pageNum = i + 1;
-                    } else if (page >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = page - 2 + i;
-                    }
-
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setPage(pageNum)}
-                        className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
-                          page === pageNum
-                            ? 'bg-indigo-600 text-white'
-                            : 'text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-
-                  <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                totalItems={totalCount}
+                itemsPerPage={limit}
+              />
             </div>
           )}
-    </div>
+      </div>
+    </AdminLayout>
   );
 };
 

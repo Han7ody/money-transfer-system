@@ -18,7 +18,7 @@ export default function MaintenancePage() {
 
           {/* Description */}
           <p className="text-slate-600 mb-6">
-            نعتذر عن الإزعاج. نحن نعمل على تحسين الخدمة حالياً. يرجى المحاولة لاحقاً.
+            النظام تحت الصيانة حالياً، يرجى المحاولة لاحقاً
           </p>
 
           {/* Status */}

@@ -1,207 +1,167 @@
 'use client';
 
-import React, { useState } from 'react';
-import { FileText, Calendar, Eye, Check, X, ZoomIn } from 'lucide-react';
+import React from 'react';
+import { useRouter } from 'next/navigation';
+import { Shield, AlertCircle, CheckCircle, Clock, FileText, ExternalLink } from 'lucide-react';
 
 interface Document {
   id: string;
-  type: 'id_front' | 'id_back' | 'selfie';
+  type: string;
   uploadDate: string;
-  status: 'approved' | 'pending' | 'rejected';
+  status?: 'approved' | 'pending' | 'rejected';
   url: string;
   rejectionReason?: string;
 }
 
 interface UserKYCSectionProps {
+  userId: string;
+  kycStatus: 'verified' | 'pending' | 'rejected' | 'not_submitted' | null;
   documents: Document[];
-  onApprove: (docId: string) => void;
-  onReject: (docId: string, reason: string) => void;
+  fraudRisk?: 'low' | 'medium' | 'high';
+  lastUpdated?: string;
 }
 
-const docTypeLabels: Record<string, string> = {
-  id_front: 'الهوية (الأمام)',
-  id_back: 'الهوية (الخلف)',
-  selfie: 'صورة شخصية'
-};
-
-const statusConfig = {
-  approved: { label: 'موافق عليها', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  pending: { label: 'قيد المراجعة', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-  rejected: { label: 'مرفوضة', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' }
-};
-
 export const UserKYCSection: React.FC<UserKYCSectionProps> = ({
+  userId,
+  kycStatus,
   documents,
-  onApprove,
-  onReject
+  fraudRisk = 'low',
+  lastUpdated
 }) => {
-  const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
-  const [rejectDoc, setRejectDoc] = useState<Document | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
+  const router = useRouter();
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('ar-SA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+  const getStatusConfig = () => {
+    const configs = {
+      verified: { 
+        bg: 'bg-emerald-50', 
+        text: 'text-emerald-700', 
+        border: 'border-emerald-200',
+        label: 'موثق', 
+        icon: CheckCircle 
+      },
+      pending: { 
+        bg: 'bg-amber-50', 
+        text: 'text-amber-700', 
+        border: 'border-amber-200',
+        label: 'قيد المراجعة', 
+        icon: Clock 
+      },
+      rejected: { 
+        bg: 'bg-rose-50', 
+        text: 'text-rose-700', 
+        border: 'border-rose-200',
+        label: 'مرفوض', 
+        icon: AlertCircle 
+      },
+      not_submitted: { 
+        bg: 'bg-slate-50', 
+        text: 'text-slate-700', 
+        border: 'border-slate-200',
+        label: 'لم يُرسل', 
+        icon: FileText 
+      }
+    };
+    return configs[kycStatus || 'not_submitted'] || configs.not_submitted;
   };
 
-  const handleReject = () => {
-    if (rejectDoc && rejectReason.trim()) {
-      onReject(rejectDoc.id, rejectReason);
-      setRejectDoc(null);
-      setRejectReason('');
-    }
+  const getRiskBadge = () => {
+    const badges = {
+      low: { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'مخاطر منخفضة' },
+      medium: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'مخاطر متوسطة' },
+      high: { bg: 'bg-rose-100', text: 'text-rose-700', label: 'مخاطر عالية' }
+    };
+    return badges[fraudRisk];
   };
+
+  const statusConfig = getStatusConfig();
+  const riskBadge = getRiskBadge();
+  const StatusIcon = statusConfig.icon;
 
   return (
-    <>
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <h3 className="text-lg font-semibold text-slate-900 mb-4">وثائق التحقق (KYC)</h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {documents.map(doc => {
-            const status = statusConfig[doc.status];
-            return (
-              <div key={doc.id} className="border border-slate-200 rounded-lg overflow-hidden">
-                {/* Document Preview */}
-                <div className="aspect-video bg-slate-100 relative group">
-                  <img
-                    src={doc.url}
-                    alt={docTypeLabels[doc.type]}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = '/placeholder-doc.png';
-                    }}
-                  />
-                  <button
-                    onClick={() => setPreviewDoc(doc)}
-                    className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
-                  >
-                    <ZoomIn className="w-6 h-6 text-white" />
-                  </button>
-                </div>
-
-                {/* Document Info */}
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-slate-500" />
-                      <span className="text-sm font-medium text-slate-900">
-                        {docTypeLabels[doc.type]}
-                      </span>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${status.bg} ${status.text} ${status.border}`}>
-                      {status.label}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-3">
-                    <Calendar className="w-3 h-3" />
-                    <span>{formatDate(doc.uploadDate)}</span>
-                  </div>
-
-                  {doc.rejectionReason && (
-                    <p className="text-xs text-rose-600 mb-3">
-                      سبب الرفض: {doc.rejectionReason}
-                    </p>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setPreviewDoc(doc)}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-slate-600 border border-slate-200 rounded hover:bg-slate-50"
-                    >
-                      <Eye className="w-3 h-3" /> عرض
-                    </button>
-                    {doc.status === 'pending' && (
-                      <>
-                        <button
-                          onClick={() => onApprove(doc.id)}
-                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-emerald-600 border border-emerald-200 rounded hover:bg-emerald-50"
-                        >
-                          <Check className="w-3 h-3" /> قبول
-                        </button>
-                        <button
-                          onClick={() => setRejectDoc(doc)}
-                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-rose-600 border border-rose-200 rounded hover:bg-rose-50"
-                        >
-                          <X className="w-3 h-3" /> رفض
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6" id="kyc-section">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+            <Shield className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">حالة التوثيق</h3>
+            <p className="text-sm text-slate-500">KYC Status</p>
+          </div>
         </div>
-
-        {documents.length === 0 && (
-          <p className="text-center text-slate-500 py-8">لم يتم رفع أي وثائق بعد</p>
-        )}
       </div>
 
-      {/* Preview Modal */}
-      {previewDoc && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-hidden">
-            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-              <h4 className="font-semibold text-slate-900">{docTypeLabels[previewDoc.type]}</h4>
-              <button
-                onClick={() => setPreviewDoc(null)}
-                className="p-1 hover:bg-slate-100 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4">
-              <img
-                src={previewDoc.url}
-                alt={docTypeLabels[previewDoc.type]}
-                className="w-full h-auto max-h-[70vh] object-contain"
-              />
-            </div>
+      {/* Status Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className={`p-4 rounded-lg border ${statusConfig.bg} ${statusConfig.border}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <StatusIcon className={`w-4 h-4 ${statusConfig.text}`} />
+            <span className="text-xs text-slate-600">حالة التوثيق</span>
+          </div>
+          <p className={`text-lg font-semibold ${statusConfig.text}`}>{statusConfig.label}</p>
+        </div>
+
+        <div className={`p-4 rounded-lg border ${riskBadge.bg} border-slate-200`}>
+          <div className="flex items-center gap-2 mb-1">
+            <AlertCircle className={`w-4 h-4 ${riskBadge.text}`} />
+            <span className="text-xs text-slate-600">مستوى المخاطر</span>
+          </div>
+          <p className={`text-lg font-semibold ${riskBadge.text}`}>{riskBadge.label}</p>
+        </div>
+
+        <div className="p-4 rounded-lg border bg-slate-50 border-slate-200">
+          <div className="flex items-center gap-2 mb-1">
+            <FileText className="w-4 h-4 text-slate-600" />
+            <span className="text-xs text-slate-600">عدد الوثائق</span>
+          </div>
+          <p className="text-lg font-semibold text-slate-900">{documents.length} ملف</p>
+        </div>
+      </div>
+
+      {/* Document Thumbnails */}
+      {documents.length > 0 && (
+        <div className="mb-6">
+          <h4 className="text-sm font-medium text-slate-700 mb-3">الوثائق المرفوعة</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {documents.map((doc) => (
+              <div key={doc.id} className="relative group">
+                <div className="aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                  {doc.url ? (
+                    <img 
+                      src={doc.url} 
+                      alt={doc.type}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <FileText className="w-8 h-8 text-slate-400" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 mt-1 text-center">{doc.type}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Reject Modal */}
-      {rejectDoc && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md p-6">
-            <h4 className="text-lg font-semibold text-slate-900 mb-4">رفض الوثيقة</h4>
-            <p className="text-sm text-slate-500 mb-4">
-              يرجى إدخال سبب رفض وثيقة "{docTypeLabels[rejectDoc.type]}":
-            </p>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              rows={3}
-              placeholder="مثال: الصورة غير واضحة..."
-            />
-            <div className="flex gap-3 mt-4">
-              <button
-                onClick={() => { setRejectDoc(null); setRejectReason(''); }}
-                className="flex-1 px-4 py-2.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleReject}
-                disabled={!rejectReason.trim()}
-                className="flex-1 px-4 py-2.5 text-sm bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50"
-              >
-                تأكيد الرفض
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Last Updated */}
+      {lastUpdated && (
+        <p className="text-xs text-slate-500 mb-4">
+          آخر تحديث: <span className="en-digits">{new Date(lastUpdated).toLocaleDateString('en-GB')}</span>
+        </p>
       )}
-    </>
+
+      {/* Primary Action Button */}
+      <button
+        onClick={() => router.push(`/admin/kyc/review/${userId}`)}
+        className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors shadow-sm hover:shadow-md"
+      >
+        <Shield className="w-5 h-5" />
+        <span>عرض صفحة مراجعة التحقق</span>
+        <ExternalLink className="w-4 h-4" />
+      </button>
+    </div>
   );
 };
 

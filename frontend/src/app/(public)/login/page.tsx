@@ -10,72 +10,38 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [maintenanceMode, setMaintenanceMode] = useState(false);
-
-  // Check maintenance status on page load
-  useEffect(() => {
-    const checkMaintenanceStatus = async () => {
-      try {
-        const response = await authAPI.getMaintenanceStatus();
-        if (response?.data?.maintenance) {
-          setMaintenanceMode(true);
-        }
-      } catch (err) {
-        console.error('Failed to check maintenance status:', err);
-      }
-    };
-
-    checkMaintenanceStatus();
-  }, []);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
 
-    // Check maintenance mode before attempting login
-    if (maintenanceMode) {
-      setError('النظام تحت الصيانة. لا يمكن تسجيل الدخول حالياً.');
-      return;
-    }
+    // Don't block login attempt - let backend decide based on user role
+    // Admins can login during maintenance, regular users will be blocked by backend
 
     setLoading(true);
     try {
       const response = await authAPI.login(formData.email, formData.password);
       if (response.success) {
-        try {
-          // اجلب بيانات المستخدم من المصدر الصحيح وحدث التخزين المحلي
-          const me = await authAPI.getCurrentUser();
-          if (me?.success && me?.data) {
-            localStorage.setItem('user', JSON.stringify(me.data));
-          }
-          const role = me?.data?.role;
-          const isVerified = me?.data?.isVerified;
+        // Use the user data from login response (already stored in localStorage by authAPI.login)
+        const user = response.data.user;
+        const role = user?.role;
+        const isVerified = user?.isVerified;
 
-          // Redirect based on role
-          if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'SUPPORT' || role === 'VIEWER') {
-            router.push('/admin');
-          } else if (!isVerified) {
-            try { await authAPI.sendVerificationOtp(); } catch {}
-            router.push('/verify-email');
-          } else {
-            router.push('/dashboard');
-          }
-        } catch {
-          // في حالة أي خطأ، نعود للتوجيه الافتراضي
+        // Redirect based on role
+        if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'SUPPORT' || role === 'VIEWER') {
+          router.push('/admin');
+        } else if (!isVerified) {
+          try { await authAPI.sendVerificationOtp(); } catch {}
+          router.push('/verify-email');
+        } else {
           router.push('/dashboard');
         }
       } else {
         setError(response.message || 'فشل تسجيل الدخول. يرجى التحقق من بياناتك.');
       }
     } catch (err: unknown) {
-      const error = err as { response?: { status: number; data?: { maintenance?: boolean; message?: string } } };
-      // Check for maintenance mode error in response
-      if (error.response?.status === 503 && error.response?.data?.maintenance) {
-        setMaintenanceMode(true);
-        setError('النظام تحت الصيانة. لا يمكن تسجيل الدخول حالياً.');
-      } else {
-        setError(error.response?.data?.message || 'حدث خطأ أثناء محاولة تسجيل الدخول.');
-      }
+      const error = err as { response?: { status: number; data?: { message?: string } } };
+      setError(error.response?.data?.message || 'حدث خطأ أثناء محاولة تسجيل الدخول.');
     }
     setLoading(false);
   };
@@ -106,13 +72,6 @@ const LoginPage = () => {
               <p className="text-slate-600">سجل دخولك للوصول إلى حسابك</p>
             </div>
 
-            {maintenanceMode && (
-              <div className="mb-6 p-4 bg-amber-50 border-2 border-amber-200 rounded-xl flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-amber-800 font-medium">النظام تحت الصيانة. سيكون متاحاً قريباً.</p>
-              </div>
-            )}
-
             {error && (
               <div className="mb-6 p-4 bg-rose-50 border-2 border-rose-200 rounded-xl flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
@@ -136,7 +95,7 @@ const LoginPage = () => {
                 <a href="/register" className="text-sm text-indigo-600 hover:text-indigo-700 font-bold">إنشاء حساب جديد</a>
               </div>
 
-              <button type="submit" disabled={loading || maintenanceMode} className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3">
+              <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3">
                 {loading ? (<><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>جاري تسجيل الدخول...</span></>) : (<><span>تسجيل الدخول</span><LogIn className="w-5 h-5" /></>)}
               </button>
             </form>

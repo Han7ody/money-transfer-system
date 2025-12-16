@@ -110,7 +110,7 @@ export default function SessionsPage() {
     if (diffHours < 24) return `نشط منذ ${diffHours} ساعة`;
     if (diffDays < 7) return `نشط منذ ${diffDays} يوم`;
 
-    return `نشط في ${date.toLocaleDateString('ar-SA')}`;
+    return `نشط في ${date.toLocaleDateString('en-GB')}`;
   };
 
   return (

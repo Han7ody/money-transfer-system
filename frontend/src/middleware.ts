@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
 // The secret key is used to verify the JWT signature.
-const JWT_SECRET = new TextEncoder().encode(process.env.NEXT_PUBLIC_JWT_SECRET || 'your-super-secret-key-change-in-production');
+const JWT_SECRET = new TextEncoder().encode(process.env.NEXT_PUBLIC_JWT_SECRET || 'your-super-secret-jwt-key-change-in-production-min-32-chars');
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 /**
@@ -27,7 +27,7 @@ async function verify(token: string, secret: Uint8Array): Promise<Record<string,
  */
 async function checkMaintenanceStatus(): Promise<boolean> {
     try {
-        const response = await fetch(`${API_BASE_URL}/admin/system/settings/maintenance`, {
+        const response = await fetch(`${API_BASE_URL}/public/system-status`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json'
@@ -56,8 +56,8 @@ export async function middleware(request: NextRequest) {
     const superAdminSettingsRoutes = ['/admin/settings/logs', '/admin/settings/smtp']; // Specific settings for SUPER_ADMIN
     const publicRoutes = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/unauthorized', '/maintenance', '/'];
 
-    // Allow access to public routes without checking maintenance
-    if (publicRoutes.includes(pathname) || pathname.startsWith('/verify-email')) {
+    // Allow access to public routes and all registration sub-routes without checking maintenance
+    if (publicRoutes.includes(pathname) || pathname.startsWith('/verify-email') || pathname.startsWith('/register/')) {
         return NextResponse.next();
     }
     
@@ -95,8 +95,9 @@ export async function middleware(request: NextRequest) {
     const isSuperAdmin = userRole === 'SUPER_ADMIN';
     const isAdmin = userRole === 'ADMIN' || isSuperAdmin;
 
-    // If maintenance mode is on and user is not admin, redirect to maintenance page
-    if (isMaintenanceMode && !isAdmin && !pathname.startsWith(adminPrefix)) {
+    // If maintenance mode is on and user is not SUPER_ADMIN, redirect to maintenance page
+    // Only SUPER_ADMIN can bypass maintenance mode
+    if (isMaintenanceMode && !isSuperAdmin && !pathname.startsWith(adminPrefix)) {
         const url = request.nextUrl.clone();
         url.pathname = '/maintenance';
         return NextResponse.redirect(url);

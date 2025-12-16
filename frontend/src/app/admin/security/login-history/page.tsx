@@ -70,7 +70,7 @@ export default function LoginHistoryPage() {
     if (diffHours < 24) return `منذ ${diffHours} ساعة`;
     if (diffDays < 7) return `منذ ${diffDays} يوم`;
 
-    return date.toLocaleDateString('ar-SA', {
+    return date.toLocaleDateString('en-GB', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',

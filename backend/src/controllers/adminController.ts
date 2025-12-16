@@ -6,6 +6,8 @@ import { AuthRequest } from '../middleware/auth';
 import path from 'path';
 import emailService from '../services/emailService';
 import { logAdminAction, AuditActions, AuditEntities } from '../utils/auditLogger';
+import { eventEmitter } from '../events/eventEmitter';
+import { EventType } from '../events/eventTypes';
 
 const prisma = new PrismaClient();
 
@@ -173,12 +175,84 @@ export const approveTransaction = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (transaction.status !== 'UNDER_REVIEW') {
-      return res.status(400).json({
+    // ✅ CHECK APPROVAL LIMITS
+    const { approvalService } = await import('../services/ApprovalService');
+    const canApproveCheck = await approvalService.canApprove(req.user!.id, parseInt(id));
+    
+    if (!canApproveCheck.canApprove) {
+      return res.status(403).json({
         success: false,
-        message: 'Transaction is not under review'
+        message: canApproveCheck.reason || 'You do not have permission to approve this transaction'
       });
     }
+
+    // ✅ CHECK MAKER-CHECKER REQUIREMENTS
+    const approvalStatus = await approvalService.getApprovalStatus(parseInt(id));
+    
+    if (approvalStatus.requiresDual) {
+      if (!approvalStatus.firstApprover) {
+        // This is the first approval
+        await approvalService.recordFirstApproval(parseInt(id), req.user!.id);
+        
+        return res.json({
+          success: true,
+          message: 'First approval recorded. Awaiting second approval.',
+          data: {
+            ...transaction,
+            approvalStatus: 'FIRST_APPROVAL_PENDING_SECOND'
+          }
+        });
+      } else if (!approvalStatus.secondApprover) {
+        // This is the second approval
+        const secondApprovalResult = await approvalService.recordSecondApproval(parseInt(id), req.user!.id);
+        
+        if (!secondApprovalResult.success) {
+          return res.status(403).json({
+            success: false,
+            message: secondApprovalResult.reason || 'Cannot record second approval'
+          });
+        }
+        // Continue with actual approval below
+      }
+    } else {
+      // Single approval sufficient
+      await approvalService.recordFirstApproval(parseInt(id), req.user!.id);
+    }
+
+    // ✅ USE STATE MACHINE VALIDATION
+    const { transactionStateMachine } = await import('../services/stateMachine/TransactionStateMachine');
+    const validation = await transactionStateMachine.validateTransition(
+      transaction.status as any,
+      'APPROVED',
+      {
+        userId: req.user!.id.toString(),
+        reason: adminNotes || 'Transaction approved by admin'
+      }
+    );
+
+    if (!validation.valid) {
+      console.log('[StateMachine] Transition denied:', validation.reason);
+      return res.status(400).json({
+        success: false,
+        message: validation.reason || 'Invalid state transition',
+        debug: {
+          from: transaction.status,
+          to: 'APPROVED',
+          reason: validation.reason
+        }
+      });
+    }
+
+    // Execute state transition
+    await transactionStateMachine.executeTransition(
+      transaction.status as any,
+      'APPROVED',
+      {
+        userId: req.user!.id.toString(),
+        reason: adminNotes || 'Transaction approved by admin',
+        metadata: { paymentMethod, paymentReference }
+      }
+    );
 
     const updated = await prisma.transaction.update({
       where: { id: parseInt(id) },
@@ -189,6 +263,9 @@ export const approveTransaction = async (req: AuthRequest, res: Response) => {
         adminNotes,
         paymentMethod,
         paymentReference
+      },
+      include: {
+        user: { select: { fullName: true } }
       }
     });
 
@@ -203,14 +280,18 @@ export const approveTransaction = async (req: AuthRequest, res: Response) => {
       }
     });
 
-    // Notify user
-    await prisma.notification.create({
-      data: {
-        userId: transaction.userId,
-        transactionId: parseInt(id),
-        title: 'Transaction Approved',
-        message: `Your transaction ${transaction.transactionRef} has been approved and is being processed.`
-      }
+    // Emit event for notifications
+    const adminUser = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { fullName: true }
+    });
+    
+    eventEmitter.emitEvent(EventType.TRANSACTION_APPROVED, {
+      transactionId: updated.id,
+      transactionRef: transaction.transactionRef,
+      userId: transaction.userId,
+      approvedBy: req.user!.id,
+      approvedByName: adminUser?.fullName || 'Admin'
     });
 
     // Log action
@@ -223,10 +304,30 @@ export const approveTransaction = async (req: AuthRequest, res: Response) => {
       req
     });
 
+    // ✅ Check for escalation requirements
+    const { escalationService } = await import('../services/EscalationService');
+    const escalationCheck = await escalationService.checkEscalation(parseInt(id));
+    
+    if (escalationCheck.needsEscalation) {
+      await escalationService.escalateTransaction(
+        parseInt(id),
+        escalationCheck.reasons,
+        req.user!.id,
+        escalationCheck.escalateTo || 'SUPER_ADMIN'
+      );
+    }
+
     res.json({
       success: true,
       message: 'Transaction approved successfully',
-      data: updated
+      data: {
+        ...updated,
+        escalation: escalationCheck.needsEscalation ? {
+          escalated: true,
+          reasons: escalationCheck.reasons,
+          escalateTo: escalationCheck.escalateTo
+        } : null
+      }
     });
   } catch (error) {
     console.error('Approve transaction error:', error);
@@ -263,12 +364,40 @@ export const rejectTransaction = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (transaction.status !== 'UNDER_REVIEW') {
+    // ✅ USE STATE MACHINE VALIDATION
+    const { transactionStateMachine } = await import('../services/stateMachine/TransactionStateMachine');
+    const validation = await transactionStateMachine.validateTransition(
+      transaction.status as any,
+      'REJECTED',
+      {
+        userId: req.user!.id.toString(),
+        reason: rejectionReason
+      }
+    );
+
+    if (!validation.valid) {
+      console.log('[StateMachine] Transition denied:', validation.reason);
       return res.status(400).json({
         success: false,
-        message: 'Transaction is not under review'
+        message: validation.reason || 'Invalid state transition',
+        debug: {
+          from: transaction.status,
+          to: 'REJECTED',
+          reason: validation.reason
+        }
       });
     }
+
+    // Execute state transition
+    await transactionStateMachine.executeTransition(
+      transaction.status as any,
+      'REJECTED',
+      {
+        userId: req.user!.id.toString(),
+        reason: rejectionReason,
+        metadata: { adminNotes }
+      }
+    );
 
     const updated = await prisma.transaction.update({
       where: { id: parseInt(id) },
@@ -291,13 +420,19 @@ export const rejectTransaction = async (req: AuthRequest, res: Response) => {
       }
     });
 
-    await prisma.notification.create({
-      data: {
-        userId: transaction.userId,
-        transactionId: parseInt(id),
-        title: 'Transaction Rejected',
-        message: `Your transaction ${transaction.transactionRef} has been rejected. Reason: ${rejectionReason}`
-      }
+    // Emit event for notifications
+    const adminUser = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { fullName: true }
+    });
+    
+    eventEmitter.emitEvent(EventType.TRANSACTION_REJECTED, {
+      transactionId: updated.id,
+      transactionRef: transaction.transactionRef,
+      userId: transaction.userId,
+      rejectedBy: req.user!.id,
+      rejectedByName: adminUser?.fullName || 'Admin',
+      reason: rejectionReason
     });
 
     await logAdminAction({
@@ -340,12 +475,34 @@ export const completeTransaction = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (transaction.status !== 'APPROVED') {
+    // ✅ USE STATE MACHINE VALIDATION
+    const { transactionStateMachine } = await import('../services/stateMachine/TransactionStateMachine');
+    const validation = await transactionStateMachine.validateTransition(
+      transaction.status as any,
+      'COMPLETED',
+      {
+        userId: req.user!.id.toString(),
+        reason: adminNotes || 'Transaction completed by admin'
+      }
+    );
+
+    if (!validation.valid) {
+      console.log('[StateMachine] Transition denied:', validation.reason);
       return res.status(400).json({
         success: false,
-        message: 'Transaction must be approved first'
+        message: validation.reason || 'Invalid state transition'
       });
     }
+
+    // Execute state transition
+    await transactionStateMachine.executeTransition(
+      transaction.status as any,
+      'COMPLETED',
+      {
+        userId: req.user!.id.toString(),
+        reason: adminNotes || 'Transaction completed by admin'
+      }
+    );
 
     const updated = await prisma.transaction.update({
       where: { id: parseInt(id) },
@@ -362,7 +519,7 @@ export const completeTransaction = async (req: AuthRequest, res: Response) => {
         oldStatus: transaction.status,
         newStatus: 'COMPLETED',
         changedBy: req.user!.id,
-        notes: 'Transaction completed - funds transferred to recipient'
+        notes: adminNotes || 'Transaction completed - funds transferred to recipient'
       }
     });
 
@@ -392,6 +549,16 @@ export const completeTransaction = async (req: AuthRequest, res: Response) => {
         completion_date: new Date().toLocaleDateString('ar-SA')
       });
     }
+
+    // Log action
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: AuditActions.COMPLETE_TRANSACTION,
+      entity: AuditEntities.TRANSACTION,
+      entityId: String(updated.id),
+      newValue: { transactionRef: transaction.transactionRef, adminNotes },
+      req
+    });
 
     res.json({
       success: true,
@@ -538,6 +705,30 @@ export const getExchangeRates = async (req: AuthRequest, res: Response) => {
 export const updateExchangeRate = async (req: AuthRequest, res: Response) => {
   try {
     const { fromCurrency: fromCurrencyCode, toCurrency: toCurrencyCode, rate, adminFeePercent, password } = req.body;
+
+    // Validate required fields
+    if (!fromCurrencyCode || !toCurrencyCode || !rate || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: fromCurrency, toCurrency, rate, password'
+      });
+    }
+
+    // Validate rate is positive
+    if (rate <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Exchange rate must be greater than 0'
+      });
+    }
+
+    // Validate admin fee if provided
+    if (adminFeePercent !== undefined && (adminFeePercent < 0 || adminFeePercent > 100)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin fee must be between 0 and 100'
+      });
+    }
 
     // Verify admin password
     const admin = await prisma.user.findUnique({
@@ -715,7 +906,15 @@ export const getAllUsers = async (req: AuthRequest, res: Response) => {
 export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { isActive } = req.body;
+    const { isActive, reason } = req.body;
+
+    // ✅ ENFORCE REASON FOR BLOCKING
+    if (!isActive && (!reason || reason.trim().length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reason is required when blocking a user'
+      });
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: parseInt(id) }
@@ -728,7 +927,7 @@ export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (user.role === 'ADMIN') {
+    if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
       return res.status(403).json({
         success: false,
         message: 'Cannot block/unblock admin users'
@@ -746,7 +945,7 @@ export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
       entity: AuditEntities.USER,
       entityId: String(updated.id),
       oldValue: { isActive: user.isActive },
-      newValue: { isActive: updated.isActive },
+      newValue: { isActive: updated.isActive, reason },
       req
     });
 
@@ -757,7 +956,7 @@ export const toggleUserStatus = async (req: AuthRequest, res: Response) => {
         title: isActive ? 'Account Activated' : 'Account Blocked',
         message: isActive
           ? 'Your account has been activated. You can now use all features.'
-          : 'Your account has been blocked. Please contact support for more information.'
+          : `Your account has been blocked. Reason: ${reason}. Please contact support for more information.`
       }
     });
 
@@ -788,6 +987,8 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
         email: true,
         phone: true,
         country: true,
+        city: true,
+        dateOfBirth: true,
         role: true,
         isActive: true,
         isVerified: true,
@@ -796,10 +997,10 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
         kycDocuments: {
           select: {
             id: true,
-            type: true,
-            filePath: true,
-            status: true,
-            rejectionReason: true,
+            documentType: true,
+            documentNumber: true,
+            frontImageUrl: true,
+            backImageUrl: true,
             uploadedAt: true
           }
         },
@@ -875,11 +1076,11 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
     // Map KYC documents
     const kycDocuments = user.kycDocuments.map(doc => ({
       id: doc.id.toString(),
-      type: doc.type as 'id_front' | 'id_back' | 'selfie',
-      uploadDate: doc.uploadedAt.toISOString(),
-      status: doc.status as 'approved' | 'pending' | 'rejected',
-      url: `/uploads/kyc/${doc.filePath}`,
-      rejectionReason: doc.rejectionReason || undefined
+      type: doc.documentType,
+      documentNumber: doc.documentNumber || undefined,
+      frontImageUrl: doc.frontImageUrl || undefined,
+      backImageUrl: doc.backImageUrl || undefined,
+      uploadDate: doc.uploadedAt.toISOString()
     }));
 
     res.json({
@@ -979,114 +1180,25 @@ export const getUserTransactions = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Approve KYC document
+// OLD KYC FUNCTIONS - DEPRECATED - Use kycController.ts instead
+// These are kept for reference but should not be used
+/*
 export const approveKycDocument = async (req: AuthRequest, res: Response) => {
-  try {
-    const { docId } = req.params;
-
-    const document = await prisma.kycDocument.update({
-      where: { id: parseInt(docId) },
-      data: {
-        status: 'approved',
-        reviewedAt: new Date()
-      }
-    });
-
-    // Check if all documents are approved, then update user KYC status
-    const userDocs = await prisma.kycDocument.findMany({
-      where: { userId: document.userId }
-    });
-
-    const allApproved = userDocs.every(doc => doc.status === 'approved');
-    if (allApproved) {
-      const user = await prisma.user.update({
-        where: { id: document.userId },
-        data: {
-          kycStatus: 'APPROVED',
-          kycReviewedAt: new Date(),
-          kycReviewedBy: req.user!.id
-        }
-      });
-
-      // Send KYC approved email
-      await emailService.sendKycApprovedEmail(user.email, user.fullName);
-    }
-
-    // Create audit log
-    await logAdminAction({
-      adminId: req.user!.id,
-      action: AuditActions.APPROVE_KYC,
-      entity: 'KycDocument',
-      entityId: String(document.id),
-      newValue: { documentType: document.type, userId: document.userId, status: 'APPROVED' },
-      req
-    });
-
-    res.json({
-      success: true,
-      message: 'Document approved successfully',
-      data: { document, kycFullyApproved: allApproved }
-    });
-  } catch (error) {
-    console.error('Approve KYC document error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to approve document'
-    });
-  }
+  // DEPRECATED - Use /admin/kyc/:userId/approve endpoint instead
+  res.status(410).json({
+    success: false,
+    message: 'This endpoint is deprecated. Use /admin/kyc/:userId/approve instead'
+  });
 };
 
-// Reject KYC document
 export const rejectKycDocument = async (req: AuthRequest, res: Response) => {
-  try {
-    const { docId } = req.params;
-    const { reason } = req.body;
-
-    const document = await prisma.kycDocument.update({
-      where: { id: parseInt(docId) },
-      data: {
-        status: 'rejected',
-        rejectionReason: reason,
-        reviewedAt: new Date()
-      }
-    });
-
-    // Update user KYC status to rejected
-    const user = await prisma.user.update({
-      where: { id: document.userId },
-      data: {
-        kycStatus: 'REJECTED',
-        kycReviewedAt: new Date(),
-        kycReviewedBy: req.user!.id
-      }
-    });
-
-    // Send KYC rejected email
-    await emailService.sendKycRejectedEmail(user.email, user.fullName, reason);
-
-    // Create audit log
-    await logAdminAction({
-      adminId: req.user!.id,
-      action: AuditActions.REJECT_KYC,
-      entity: 'KycDocument',
-      entityId: String(document.id),
-      newValue: { documentType: document.type, userId: document.userId, reason, status: 'REJECTED' },
-      req
-    });
-
-    res.json({
-      success: true,
-      message: 'Document rejected',
-      data: { document }
-    });
-  } catch (error) {
-    console.error('Reject KYC document error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to reject document'
-    });
-  }
+  // DEPRECATED - Use /admin/kyc/:userId/reject endpoint instead
+  res.status(410).json({
+    success: false,
+    message: 'This endpoint is deprecated. Use /admin/kyc/:userId/reject instead'
+  });
 };
+*/
 
 // Get admin notifications (aggregated from various sources)
 export const getAdminNotifications = async (req: AuthRequest, res: Response) => {
@@ -1201,9 +1313,11 @@ export const getAdminNotifications = async (req: AuthRequest, res: Response) => 
     ];
 
     // Sort by timestamp
-    notifications.sort((a, b) =>
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
+    notifications.sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeB - timeA;
+    });
 
     res.json({
       success: true,
@@ -1260,6 +1374,7 @@ export const getAdminProfile = async (req: AuthRequest, res: Response) => {
         email: true,
         phone: true,
         role: true,
+        profilePicture: true,
         createdAt: true
       }
     });
@@ -1353,6 +1468,70 @@ export const updateAdminProfile = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update admin profile'
+    });
+  }
+};
+
+// Update admin profile picture
+export const updateProfilePicture = async (req: AuthRequest, res: Response) => {
+  try {
+    const adminId = req.user!.id;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No profile picture uploaded'
+      });
+    }
+
+    // Get current profile picture before update
+    const currentUser = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { profilePicture: true }
+    });
+
+    // Generate the URL for the uploaded file
+    const profilePictureUrl = `/uploads/profiles/${file.filename}`;
+
+    // Update admin profile picture in database
+    const updatedAdmin = await prisma.user.update({
+      where: { id: adminId },
+      data: {
+        profilePicture: profilePictureUrl
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        profilePicture: true
+      }
+    });
+
+    // Log the update
+    await logAdminAction({
+      adminId,
+      action: AuditActions.UPDATE,
+      entity: AuditEntities.USER,
+      entityId: adminId.toString(),
+      oldValue: { profilePicture: currentUser?.profilePicture || null },
+      newValue: { profilePicture: profilePictureUrl },
+      req
+    });
+
+    res.json({
+      success: true,
+      message: 'Profile picture updated successfully',
+      data: {
+        profilePicture: profilePictureUrl,
+        admin: updatedAdmin
+      }
+    });
+  } catch (error) {
+    console.error('Update profile picture error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update profile picture'
     });
   }
 };
@@ -1521,6 +1700,438 @@ export const getAuditLogStats = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch audit log statistics'
+    });
+  }
+};
+
+// ==================== AGENT ASSIGNMENT & CASH PICKUP ====================
+
+// Assign agent to transaction
+export const assignAgentToTransaction = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { agentId } = req.body;
+
+    if (!agentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Agent ID is required'
+      });
+    }
+
+    // Get transaction
+    const transaction = await prisma.transaction.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        user: true,
+        fromCurrency: true,
+        toCurrency: true
+      }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+
+    // Validate payout method
+    if (transaction.payoutMethod !== 'CASH_PICKUP') {
+      return res.status(400).json({
+        success: false,
+        message: 'Agent can only be assigned to cash pickup transactions'
+      });
+    }
+
+    // Validate pickup city is set
+    if (!transaction.pickupCity) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pickup city must be set before assigning agent'
+      });
+    }
+
+    // Get agent
+    const agent = await prisma.agent.findUnique({
+      where: { id: parseInt(agentId) }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent not found'
+      });
+    }
+
+    // Validate agent status
+    if (agent.status !== 'ACTIVE') {
+      return res.status(400).json({
+        success: false,
+        message: `Agent is ${agent.status}. Only ACTIVE agents can be assigned.`
+      });
+    }
+
+    // Validate agent city matches pickup city
+    if (agent.city.toLowerCase() !== transaction.pickupCity.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: `Agent is in ${agent.city} but pickup city is ${transaction.pickupCity}`
+      });
+    }
+
+    // Check agent capacity
+    const remaining = Number(agent.maxDailyAmount) - Number(agent.currentDailyAmount);
+    if (remaining < Number(transaction.amountReceived)) {
+      return res.status(400).json({
+        success: false,
+        message: `Agent has insufficient daily capacity. Remaining: ${remaining}, Required: ${transaction.amountReceived}`
+      });
+    }
+
+    // Generate unique 6-digit pickup code
+    const pickupCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Update transaction
+    const updatedTransaction = await prisma.transaction.update({
+      where: { id: parseInt(id) },
+      data: {
+        assignedAgentId: agent.id,
+        assignedAt: new Date(),
+        pickupCode,
+        status: 'READY_FOR_PICKUP'
+      },
+      include: {
+        assignedAgent: true,
+        user: true,
+        fromCurrency: true,
+        toCurrency: true
+      }
+    });
+
+    // Update agent statistics
+    await prisma.agent.update({
+      where: { id: agent.id },
+      data: {
+        activeTransactions: { increment: 1 },
+        currentDailyAmount: { increment: transaction.amountReceived }
+      }
+    });
+
+    // Create transaction history entry
+    await prisma.transactionHistory.create({
+      data: {
+        transactionId: transaction.id,
+        oldStatus: transaction.status,
+        newStatus: 'READY_FOR_PICKUP',
+        changedBy: req.user!.id,
+        notes: `Agent ${agent.fullName} assigned. Pickup code: ${pickupCode}`
+      }
+    });
+
+    // Log audit action
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: AuditActions.ASSIGN_AGENT,
+      entity: AuditEntities.TRANSACTION,
+      entityId: transaction.id.toString(),
+      oldValue: { assignedAgentId: null, status: transaction.status },
+      newValue: { assignedAgentId: agent.id, status: 'READY_FOR_PICKUP', pickupCode },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    // Send notification email to user
+    try {
+      await emailService.sendAgentAssignedEmail(
+        transaction.user.email,
+        transaction.user.fullName,
+        {
+          transactionRef: transaction.transactionRef,
+          agentName: agent.fullName,
+          agentPhone: agent.phone,
+          agentWhatsapp: agent.whatsapp || agent.phone,
+          pickupCity: transaction.pickupCity,
+          pickupCode,
+          amount: `${transaction.amountReceived} ${transaction.toCurrency.code}`
+        }
+      );
+    } catch (emailError) {
+      console.error('Failed to send agent assignment email:', emailError);
+      // Don't fail the request if email fails
+    }
+
+    return res.json({
+      success: true,
+      message: 'Agent assigned successfully',
+      data: updatedTransaction
+    });
+  } catch (error: any) {
+    console.error('Assign agent error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to assign agent'
+    });
+  }
+};
+
+// Confirm cash pickup
+export const confirmCashPickup = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { pickupCode } = req.body;
+
+    if (!pickupCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pickup code is required'
+      });
+    }
+
+    // Get transaction
+    const transaction = await prisma.transaction.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        assignedAgent: true,
+        user: true,
+        fromCurrency: true,
+        toCurrency: true
+      }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+
+    // Validate transaction status
+    if (transaction.status !== 'READY_FOR_PICKUP') {
+      return res.status(400).json({
+        success: false,
+        message: `Transaction status is ${transaction.status}. Only READY_FOR_PICKUP transactions can be confirmed.`
+      });
+    }
+
+    // Validate pickup code
+    if (transaction.pickupCode !== pickupCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid pickup code'
+      });
+    }
+
+    // Validate agent is assigned
+    if (!transaction.assignedAgentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No agent assigned to this transaction'
+      });
+    }
+
+    // Update transaction
+    const updatedTransaction = await prisma.transaction.update({
+      where: { id: parseInt(id) },
+      data: {
+        status: 'COMPLETED',
+        pickupVerifiedAt: new Date(),
+        pickupVerifiedByAgentId: transaction.assignedAgentId,
+        completedAt: new Date()
+      },
+      include: {
+        assignedAgent: true,
+        pickupVerifier: true,
+        user: true,
+        fromCurrency: true,
+        toCurrency: true
+      }
+    });
+
+    // Update agent statistics
+    await prisma.agent.update({
+      where: { id: transaction.assignedAgentId },
+      data: {
+        activeTransactions: { decrement: 1 },
+        totalTransactions: { increment: 1 }
+      }
+    });
+
+    // Create transaction history entry
+    await prisma.transactionHistory.create({
+      data: {
+        transactionId: transaction.id,
+        oldStatus: 'READY_FOR_PICKUP',
+        newStatus: 'COMPLETED',
+        changedBy: req.user!.id,
+        notes: `Cash pickup confirmed by ${transaction.assignedAgent?.fullName}`
+      }
+    });
+
+    // Log audit action
+    await logAdminAction({
+      adminId: req.user!.id,
+      action: AuditActions.CONFIRM_PICKUP,
+      entity: AuditEntities.TRANSACTION,
+      entityId: transaction.id.toString(),
+      oldValue: { status: 'READY_FOR_PICKUP', pickupVerifiedAt: null },
+      newValue: { status: 'COMPLETED', pickupVerifiedAt: new Date() },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    // Send completion notification email
+    try {
+      await emailService.sendCashPickupCompletedEmail(
+        transaction.user.email,
+        transaction.user.fullName,
+        {
+          transactionRef: transaction.transactionRef,
+          amount: `${transaction.amountReceived} ${transaction.toCurrency.code}`,
+          recipientName: transaction.recipientName,
+          completedAt: new Date().toISOString()
+        }
+      );
+    } catch (emailError) {
+      console.error('Failed to send completion email:', emailError);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Cash pickup confirmed successfully',
+      data: updatedTransaction
+    });
+  } catch (error: any) {
+    console.error('Confirm cash pickup error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to confirm cash pickup'
+    });
+  }
+};
+
+
+// Get transaction history
+export const getTransactionHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const history = await prisma.transactionHistory.findMany({
+      where: { transactionId: parseInt(id) },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Manually fetch user details for each history entry
+    const historyWithUsers = await Promise.all(
+      history.map(async (entry) => {
+        let changedByUser = null;
+        if (entry.changedBy) {
+          changedByUser = await prisma.user.findUnique({
+            where: { id: entry.changedBy },
+            select: { id: true, fullName: true, email: true }
+          });
+        }
+        return { ...entry, changedByUser };
+      })
+    );
+
+    return res.json({
+      success: true,
+      data: historyWithUsers
+    });
+  } catch (error: any) {
+    console.error('Get transaction history error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch transaction history'
+    });
+  }
+};
+
+// Get recent users for AML case creation
+export const getRecentUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    const { limit = 20, sortBy = 'lastTransaction' } = req.query;
+
+    let orderBy: any = { createdAt: 'desc' };
+    
+    if (sortBy === 'lastTransaction') {
+      // Get users with their most recent transaction date
+      const users = await prisma.user.findMany({
+        where: { 
+          role: 'USER',
+          isActive: true 
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          createdAt: true,
+          transactions: {
+            select: {
+              createdAt: true
+            },
+            orderBy: {
+              createdAt: 'desc'
+            },
+            take: 1
+          }
+        },
+        take: parseInt(limit as string) * 2 // Get more to sort properly
+      });
+
+      // Sort by last transaction date
+      const usersWithLastTransaction = users
+        .map(user => ({
+          ...user,
+          lastTransactionAt: user.transactions[0]?.createdAt || null,
+          transactions: undefined // Remove transactions from response
+        }))
+        .sort((a, b) => {
+          if (!a.lastTransactionAt && !b.lastTransactionAt) return 0;
+          if (!a.lastTransactionAt) return 1;
+          if (!b.lastTransactionAt) return -1;
+          return new Date(b.lastTransactionAt).getTime() - new Date(a.lastTransactionAt).getTime();
+        })
+        .slice(0, parseInt(limit as string));
+
+      return res.json({
+        success: true,
+        data: {
+          users: usersWithLastTransaction
+        }
+      });
+    } else {
+      // Default sorting by creation date
+      const users = await prisma.user.findMany({
+        where: { 
+          role: 'USER',
+          isActive: true 
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          createdAt: true
+        },
+        orderBy,
+        take: parseInt(limit as string)
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          users
+        }
+      });
+    }
+  } catch (error: any) {
+    console.error('Get recent users error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch recent users'
     });
   }
 };

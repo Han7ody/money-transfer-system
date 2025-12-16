@@ -45,7 +45,7 @@ export const UserTransactionsTable: React.FC<UserTransactionsTableProps> = ({
   const router = useRouter();
 
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('ar-SA', {
+    return new Date(date).toLocaleDateString('en-GB', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
@@ -53,7 +53,7 @@ export const UserTransactionsTable: React.FC<UserTransactionsTableProps> = ({
   };
 
   const formatCurrency = (amount: number, currency: string) => {
-    return `${amount.toLocaleString()} ${currency}`;
+    return `${amount.toLocaleString('en-US')} ${currency}`;
   };
 
   const SortButton = ({ field, label }: { field: string; label: string }) => (

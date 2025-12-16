@@ -114,3 +114,40 @@ export const uploadKycDocuments = multer({
   { name: 'idBack', maxCount: 1 },
   { name: 'selfie', maxCount: 1 }
 ]);
+
+// Profile picture upload directory
+const profileUploadsDir = path.join(__dirname, '../../uploads/profiles');
+if (!fs.existsSync(profileUploadsDir)) {
+  fs.mkdirSync(profileUploadsDir, { recursive: true });
+}
+
+// Profile picture storage
+const profileStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, profileUploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `profile-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+// Profile picture file filter - only images
+const profileFileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files (JPEG, PNG, WebP) are allowed'));
+  }
+};
+
+// Profile picture upload middleware
+export const uploadProfilePicture = multer({
+  storage: profileStorage,
+  fileFilter: profileFileFilter,
+  limits: {
+    fileSize: 2 * 1024 * 1024, // 2MB limit
+  }
+}).single('profilePicture');

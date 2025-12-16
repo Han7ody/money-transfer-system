@@ -32,7 +32,7 @@ export const maintenanceMode = async (
     // If maintenance mode is ON, check user role
     const user = req.user;
 
-    // If no authenticated user or user is not admin, block the request
+    // If no authenticated user, block the request
     if (!user) {
       return res.status(503).json({
         error: 'SYSTEM_UNDER_MAINTENANCE',
@@ -41,10 +41,10 @@ export const maintenanceMode = async (
       });
     }
 
-    // Check if user has admin role
-    const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN';
+    // Only SUPER_ADMIN can bypass maintenance mode
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
 
-    if (!isAdmin) {
+    if (!isSuperAdmin) {
       return res.status(503).json({
         error: 'SYSTEM_UNDER_MAINTENANCE',
         message: 'The system is currently under maintenance.',
@@ -52,7 +52,7 @@ export const maintenanceMode = async (
       });
     }
 
-    // Admin or SUPER_ADMIN can proceed
+    // SUPER_ADMIN can proceed
     return next();
   } catch (error) {
     console.error('[MaintenanceMode] Error checking maintenance status:', error);

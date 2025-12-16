@@ -18,6 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api';
 import { AuditLog, AuditLogFilters } from '@/types/audit';
 import { AuditLogDrawer } from '@/components/admin/AuditLogDrawer';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 export default function AuditLogsPage() {
   const router = useRouter();
@@ -168,7 +169,7 @@ export default function AuditLogsPage() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleString('ar-SA', {
+    return date.toLocaleDateString('en-GB', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -182,11 +183,12 @@ export default function AuditLogsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">سجل التغيّرات</h1>
-        <p className="text-slate-600">عرض كافة عمليات التعديل التي تمت على إعدادات المنصة.</p>
-      </div>
+    <AdminLayout>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">سجل التغيّرات</h1>
+          <p className="text-slate-600">عرض كافة عمليات التعديل التي تمت على إعدادات المنصة.</p>
+        </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -441,7 +443,8 @@ export default function AuditLogsPage() {
         )}
       </div>
 
-      <AuditLogDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} log={selectedLog} />
-    </div>
+        <AuditLogDrawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} log={selectedLog} />
+      </div>
+    </AdminLayout>
   );
 }

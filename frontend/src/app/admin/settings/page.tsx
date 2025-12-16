@@ -12,6 +12,7 @@ import {
   Clock,
   Bell
 } from 'lucide-react';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 interface SettingCard {
   title: string;
@@ -47,11 +48,25 @@ export default function SettingsPage() {
       color: 'bg-indigo-500'
     },
     {
-      title: 'إعدادات البريد',
-      description: 'تكوين SMTP وقوالب البريد الإلكتروني',
+      title: 'إعدادات SMTP',
+      description: 'تكوين إعدادات البريد الإلكتروني',
       icon: <Mail className="w-6 h-6" />,
       href: '/admin/settings/smtp',
       color: 'bg-purple-500'
+    },
+    {
+      title: 'قوالب البريد',
+      description: 'إدارة قوالب الرسائل الإلكترونية',
+      icon: <Mail className="w-6 h-6" />,
+      href: '/admin/settings/email-templates',
+      color: 'bg-violet-500'
+    },
+    {
+      title: 'العملات',
+      description: 'إدارة العملات المدعومة في المنصة',
+      icon: <DollarSign className="w-6 h-6" />,
+      href: '/admin/settings/currencies',
+      color: 'bg-green-500'
     },
     {
       title: 'السياسات',
@@ -70,9 +85,17 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <AdminLayout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">الإعدادات</h1>
+          <p className="text-slate-600 dark:text-slate-400 mt-1">
+            إدارة إعدادات المنصة والتكوينات
+          </p>
+        </div>
 
-      {/* Settings Cards Grid */}
+        {/* Settings Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {settingCards.map((card) => (
           <button
@@ -91,6 +114,7 @@ export default function SettingsPage() {
           </button>
         ))}
       </div>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

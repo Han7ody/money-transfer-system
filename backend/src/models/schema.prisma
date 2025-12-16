@@ -1,6 +1,3 @@
-// Prisma Schema
-// backend/src/models/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,74 +8,61 @@ datasource db {
 }
 
 model User {
-  id            Int      @id @default(autoincrement())
-  fullName      String   @map("full_name")
-  email         String   @unique
-  phone         String?   @unique
-  passwordHash  String   @map("password_hash")
-  role          Role     @default(USER)
-  country       String
-  isVerified    Boolean  @default(false) @map("is_verified")
-  isActive      Boolean  @default(true) @map("is_active")
-
-  // Notification Preferences
-  notificationsOnEmail          Boolean  @default(true) @map("notifications_on_email")
-  notificationsOnSms            Boolean  @default(true) @map("notifications_on_sms")
-  notificationsOnTransactionUpdate Boolean  @default(true) @map("notifications_on_transaction_update")
-  notificationsOnMarketing      Boolean  @default(false) @map("notifications_on_marketing")
-
-  // Verification & Password Reset
-  verificationOtp             String?   @map("verification_otp")
-  verificationOtpExpiresAt    DateTime? @map("verification_otp_expires_at")
-  passwordResetToken          String?   @unique @map("password_reset_token")
-  passwordResetTokenExpiresAt DateTime? @map("password_reset_token_expires_at")
-
-  // Profile fields (Step 2)
-  city          String?
-  dateOfBirth   DateTime? @map("date_of_birth")
-  nationality   String?
-
-  // KYC fields (Step 3)
-  kycStatus     KycStatus @default(NOT_SUBMITTED) @map("kyc_status")
-  kycDocuments  KycDocument[]
-  kycSubmittedAt DateTime? @map("kyc_submitted_at")
-  kycReviewedAt  DateTime? @map("kyc_reviewed_at")
-  kycReviewedBy  Int?      @map("kyc_reviewed_by")
-
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  transactions        Transaction[] @relation("UserTransactions")
-  reviewedTransactions Transaction[] @relation("ReviewedBy")
-  notifications       Notification[]
-  auditLogs          AuditLog[]     @relation()
-  updatedRates       ExchangeRate[]
-  settingsUpdates    SystemSettings[] @relation("SettingsUpdater")
+  id                               Int              @id @default(autoincrement())
+  fullName                         String           @map("full_name")
+  email                            String           @unique
+  phone                            String?          @unique
+  passwordHash                     String           @map("password_hash")
+  role                             Role             @default(USER)
+  country                          String
+  isVerified                       Boolean          @default(false) @map("is_verified")
+  isActive                         Boolean          @default(true) @map("is_active")
+  notificationsOnEmail             Boolean          @default(true) @map("notifications_on_email")
+  notificationsOnSms               Boolean          @default(true) @map("notifications_on_sms")
+  notificationsOnTransactionUpdate Boolean          @default(true) @map("notifications_on_transaction_update")
+  notificationsOnMarketing         Boolean          @default(false) @map("notifications_on_marketing")
+  verificationOtp                  String?          @map("verification_otp")
+  verificationOtpExpiresAt         DateTime?        @map("verification_otp_expires_at")
+  passwordResetToken               String?          @unique @map("password_reset_token")
+  passwordResetTokenExpiresAt      DateTime?        @map("password_reset_token_expires_at")
+  city                             String?
+  dateOfBirth                      DateTime?        @map("date_of_birth")
+  nationality                      String?
+  kycStatus                        KycStatus        @default(NOT_SUBMITTED) @map("kyc_status")
+  kycSubmittedAt                   DateTime?        @map("kyc_submitted_at")
+  kycReviewedAt                    DateTime?        @map("kyc_reviewed_at")
+  kycReviewedBy                    Int?             @map("kyc_reviewed_by")
+  profilePicture                   String?          @map("profile_picture")
+  createdAt                        DateTime         @default(now()) @map("created_at")
+  updatedAt                        DateTime         @updatedAt @map("updated_at")
+  auditLogs                        AuditLog[]
+  updatedRates                     ExchangeRate[]
+  kycDocuments                     KycDocument[]
+  notifications                    Notification[]
+  settingsUpdates                  SystemSettings[] @relation("SettingsUpdater")
+  reviewedTransactions             Transaction[]    @relation("ReviewedBy")
+  transactions                     Transaction[]    @relation("UserTransactions")
+  rateLimits                       RateLimit[]      @relation("RateLimitCreator")
+  kycReviewNotes                   KycReviewNote[]  @relation("KycReviewNotes")
+  kycActionLogs                    KycActionLog[]   @relation("KycActionLogs")
+  fraudMatchesAsUser               FraudMatch[]     @relation("FraudMatchesUser")
+  fraudMatchesAsMatched            FraudMatch[]     @relation("FraudMatchesMatched")
 
   @@map("users")
 }
 
-enum Role {
-  SUPER_ADMIN
-  ADMIN
-  SUPPORT
-  VIEWER
-  USER
-}
-
 model Currency {
-  id        Int      @id @default(autoincrement())
-  code      String   @unique
-  name      String
-  symbol    String?
-  country   String?
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-
+  id                Int            @id @default(autoincrement())
+  code              String         @unique
+  name              String
+  symbol            String?
+  country           String?
+  isActive          Boolean        @default(true) @map("is_active")
+  createdAt         DateTime       @default(now()) @map("created_at")
   exchangeRatesFrom ExchangeRate[] @relation("FromCurrency")
   exchangeRatesTo   ExchangeRate[] @relation("ToCurrency")
-  transactionsFrom  Transaction[] @relation("FromCurrency")
-  transactionsTo    Transaction[] @relation("ToCurrency")
+  transactionsFrom  Transaction[]  @relation("FromCurrency")
+  transactionsTo    Transaction[]  @relation("ToCurrency")
 
   @@map("currencies")
 }
@@ -92,124 +76,131 @@ model ExchangeRate {
   updatedBy       Int?     @map("updated_by")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
-
-  fromCurrency Currency @relation("FromCurrency", fields: [fromCurrencyId], references: [id])
-  toCurrency   Currency @relation("ToCurrency", fields: [toCurrencyId], references: [id])
-  updater      User?    @relation(fields: [updatedBy], references: [id])
+  fromCurrency    Currency @relation("FromCurrency", fields: [fromCurrencyId], references: [id])
+  toCurrency      Currency @relation("ToCurrency", fields: [toCurrencyId], references: [id])
+  updater         User?    @relation(fields: [updatedBy], references: [id])
 
   @@unique([fromCurrencyId, toCurrencyId])
   @@map("exchange_rates")
 }
 
-model Transaction {
-  id                    Int      @id @default(autoincrement())
-  transactionRef        String   @unique @map("transaction_ref")
-  userId                Int      @map("user_id")
-  
-  // Sender
-  senderName            String   @map("sender_name")
-  senderPhone           String   @map("sender_phone")
-  senderCountry         String   @map("sender_country")
-  
-  // Recipient
-  recipientName         String   @map("recipient_name")
-  recipientPhone        String   @map("recipient_phone")
-  recipientBankName     String?  @map("recipient_bank_name")
-  recipientAccountNumber String? @map("recipient_account_number")
-  recipientCountry      String   @map("recipient_country")
-  
-  // Amount
-  fromCurrencyId        Int      @map("from_currency_id")
-  toCurrencyId          Int      @map("to_currency_id")
-  amountSent            Decimal  @map("amount_sent") @db.Decimal(15, 2)
-  exchangeRate          Decimal  @map("exchange_rate") @db.Decimal(15, 6)
-  adminFee              Decimal  @default(0) @map("admin_fee") @db.Decimal(15, 2)
-  amountReceived        Decimal  @map("amount_received") @db.Decimal(15, 2)
-  
-  // Receipt
-  receiptFilePath       String?  @map("receipt_file_path")
-  receiptUploadedAt     DateTime? @map("receipt_uploaded_at")
-  status                TransactionStatus @default(PENDING)
-  
-  // Admin Review
-  reviewedBy            Int?     @map("reviewed_by")
-  reviewedAt            DateTime? @map("reviewed_at")
-  adminNotes            String?  @map("admin_notes")
-  rejectionReason       String?  @map("rejection_reason")
-  
-  // Payment
-  paymentMethod         String?  @map("payment_method")
-  paymentReference      String?  @map("payment_reference")
-  completedAt           DateTime? @map("completed_at")
-  
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+model Agent {
+  id                  Int           @id @default(autoincrement())
+  fullName            String        @map("full_name")
+  phone               String        @unique
+  whatsapp            String?
+  city                String
+  country             String        @default("Sudan")
+  status              AgentStatus   @default(ACTIVE)
+  maxDailyAmount      Decimal       @map("max_daily_amount") @db.Decimal(15, 2)
+  currentDailyAmount  Decimal       @default(0) @map("current_daily_amount") @db.Decimal(15, 2)
+  activeTransactions  Int           @default(0) @map("active_transactions")
+  totalTransactions   Int           @default(0) @map("total_transactions")
+  notes               String?
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  assignedTransactions Transaction[] @relation("AssignedAgent")
+  verifiedPickups     Transaction[] @relation("PickupVerifier")
 
-  user          User       @relation("UserTransactions", fields: [userId], references: [id])
-  reviewer      User?      @relation("ReviewedBy", fields: [reviewedBy], references: [id])
-  fromCurrency  Currency   @relation("FromCurrency", fields: [fromCurrencyId], references: [id])
-  toCurrency    Currency   @relation("ToCurrency", fields: [toCurrencyId], references: [id])
-  history       TransactionHistory[]
-  notifications Notification[]
+  @@index([city])
+  @@index([status])
+  @@map("agents")
+}
+
+model Transaction {
+  id                     Int                  @id @default(autoincrement())
+  transactionRef         String               @unique @map("transaction_ref")
+  userId                 Int                  @map("user_id")
+  senderName             String               @map("sender_name")
+  senderPhone            String               @map("sender_phone")
+  senderCountry          String               @map("sender_country")
+  recipientName          String               @map("recipient_name")
+  recipientPhone         String               @map("recipient_phone")
+  recipientBankName      String?              @map("recipient_bank_name")
+  recipientAccountNumber String?              @map("recipient_account_number")
+  recipientCountry       String               @map("recipient_country")
+  fromCurrencyId         Int                  @map("from_currency_id")
+  toCurrencyId           Int                  @map("to_currency_id")
+  amountSent             Decimal              @map("amount_sent") @db.Decimal(15, 2)
+  exchangeRate           Decimal              @map("exchange_rate") @db.Decimal(15, 6)
+  adminFee               Decimal              @default(0) @map("admin_fee") @db.Decimal(15, 2)
+  amountReceived         Decimal              @map("amount_received") @db.Decimal(15, 2)
+  receiptFilePath        String?              @map("receipt_file_path")
+  receiptUploadedAt      DateTime?            @map("receipt_uploaded_at")
+  status                 TransactionStatus    @default(PENDING)
+  reviewedBy             Int?                 @map("reviewed_by")
+  reviewedAt             DateTime?            @map("reviewed_at")
+  adminNotes             String?              @map("admin_notes")
+  rejectionReason        String?              @map("rejection_reason")
+  paymentMethod          String?              @map("payment_method")
+  paymentReference       String?              @map("payment_reference")
+  completedAt            DateTime?            @map("completed_at")
+  payoutMethod           PayoutMethod?        @map("payout_method")
+  pickupCity             String?              @map("pickup_city")
+  assignedAgentId        Int?                 @map("assigned_agent_id")
+  assignedAt             DateTime?            @map("assigned_at")
+  pickupCode             String?              @unique @map("pickup_code")
+  pickupVerifiedAt       DateTime?            @map("pickup_verified_at")
+  pickupVerifiedByAgentId Int?                @map("pickup_verified_by_agent_id")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+  notifications          Notification[]
+  history                TransactionHistory[]
+  fromCurrency           Currency             @relation("FromCurrency", fields: [fromCurrencyId], references: [id])
+  reviewer               User?                @relation("ReviewedBy", fields: [reviewedBy], references: [id])
+  toCurrency             Currency             @relation("ToCurrency", fields: [toCurrencyId], references: [id])
+  user                   User                 @relation("UserTransactions", fields: [userId], references: [id])
+  assignedAgent          Agent?               @relation("AssignedAgent", fields: [assignedAgentId], references: [id])
+  pickupVerifier         Agent?               @relation("PickupVerifier", fields: [pickupVerifiedByAgentId], references: [id])
 
   @@index([userId])
   @@index([status])
   @@index([transactionRef])
+  @@index([assignedAgentId])
+  @@index([pickupCity])
   @@map("transactions")
 }
 
-enum TransactionStatus {
-  PENDING
-  UNDER_REVIEW
-  APPROVED
-  REJECTED
-  COMPLETED
-  CANCELLED
-}
-
 model TransactionHistory {
-  id            Int      @id @default(autoincrement())
-  transactionId Int      @map("transaction_id")
-  oldStatus     String?  @map("old_status")
-  newStatus     String   @map("new_status")
-  changedBy     Int?     @map("changed_by")
+  id            Int         @id @default(autoincrement())
+  transactionId Int         @map("transaction_id")
+  oldStatus     String?     @map("old_status")
+  newStatus     String      @map("new_status")
+  changedBy     Int?        @map("changed_by")
   notes         String?
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  transaction Transaction @relation(fields: [transactionId], references: [id])
+  createdAt     DateTime    @default(now()) @map("created_at")
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
 
   @@map("transaction_history")
 }
 
 model Notification {
-  id            Int      @id @default(autoincrement())
-  userId        Int      @map("user_id")
-  transactionId Int?     @map("transaction_id")
+  id            Int          @id @default(autoincrement())
+  userId        Int          @map("user_id")
+  transactionId Int?         @map("transaction_id")
   title         String
   message       String
-  isRead        Boolean  @default(false) @map("is_read")
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  user        User         @relation(fields: [userId], references: [id])
-  transaction Transaction? @relation(fields: [transactionId], references: [id])
+  isRead        Boolean      @default(false) @map("is_read")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  user          User         @relation(fields: [userId], references: [id])
 
   @@index([userId, isRead])
   @@map("notifications")
 }
 
 model AuditLog {
-  id         Int      @id @default(autoincrement())
-  adminId    Int?     @map("admin_id")
-  action     String   // e.g. "UPDATE_EXCHANGE_RATES", "ADMIN_LOGIN", "UPDATE_SMTP"
-  entity     String   // e.g. "SystemSettings", "ExchangeRates", "User", "Transaction"
-  entityId   String?  @map("entity_id")
-  oldValue   Json?    @map("old_value")
-  newValue   Json?    @map("new_value")
-  ipAddress  String?  @map("ip_address")
-  userAgent  String?  @map("user_agent")
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  admin User? @relation(fields: [adminId], references: [id])
+  id        Int      @id @default(autoincrement())
+  adminId   Int?     @map("admin_id")
+  action    String
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+  entity    String
+  entityId  String?  @map("entity_id")
+  oldValue  Json?    @map("old_value")
+  newValue  Json?    @map("new_value")
+  userAgent String?  @map("user_agent")
+  admin     User?    @relation(fields: [adminId], references: [id])
 
   @@index([adminId])
   @@index([action])
@@ -218,39 +209,201 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-enum KycStatus {
-  NOT_SUBMITTED
-  PENDING
-  APPROVED
-  REJECTED
-}
-
 model KycDocument {
-  id            Int      @id @default(autoincrement())
-  userId        Int      @map("user_id")
-  type          String   // id_front, id_back, selfie
-  filePath      String   @map("file_path")
-  status        String   @default("pending") // pending, approved, rejected
-  rejectionReason String? @map("rejection_reason")
-  uploadedAt    DateTime @default(now()) @map("uploaded_at")
-  reviewedAt    DateTime? @map("reviewed_at")
+  id             Int       @id @default(autoincrement())
+  userId         Int       @map("user_id")
+  documentType   String    @map("document_type") @db.VarChar(50) // PASSPORT, NATIONAL_ID, DRIVERS_LICENSE
+  documentNumber String?   @map("document_number") @db.VarChar(100)
+  frontImageUrl  String?   @map("front_image_url") @db.VarChar(500)
+  backImageUrl   String?   @map("back_image_url") @db.VarChar(500)
+  uploadedAt     DateTime  @default(now()) @map("uploaded_at")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  user User @relation(fields: [userId], references: [id])
-
+  @@index([userId], map: "idx_kyc_document_user")
+  @@index([documentType], map: "idx_kyc_document_type")
+  @@index([documentNumber], map: "idx_kyc_document_number")
   @@map("kyc_documents")
 }
 
 model SystemSettings {
   id          Int      @id @default(autoincrement())
-  key         String   @unique
-  value       String   @db.Text
-  category    String   @default("general")
+  key         String   @unique @db.VarChar(255)
+  value       String
+  category    String   @default("general") @db.VarChar(100)
   isEncrypted Boolean  @default(false) @map("is_encrypted")
   updatedBy   Int?     @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  updater     User?    @relation("SettingsUpdater", fields: [updatedBy], references: [id], onUpdate: NoAction, map: "fk_system_settings_updater")
+
+  @@index([category], map: "idx_system_settings_category")
+  @@index([key], map: "idx_system_settings_key")
+  @@map("system_settings")
+}
+
+// Sprint 1 - Rate Limiting Configuration
+model RateLimit {
+  id          Int      @id @default(autoincrement())
+  endpoint    String   @db.VarChar(200)
+  method      String   @db.VarChar(10) // GET, POST, PUT, DELETE, ALL
+  maxRequests Int      @map("max_requests")
+  windowMs    Int      @map("window_ms") // Time window in milliseconds
+  message     String?  @db.VarChar(200)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   Int?     @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  creator User? @relation("RateLimitCreator", fields: [createdBy], references: [id])
+  
+  @@unique([endpoint, method], map: "unique_endpoint_method")
+  @@index([endpoint], map: "idx_rate_limit_endpoint")
+  @@index([isActive], map: "idx_rate_limit_active")
+  @@map("rate_limits")
+}
 
-  updater User? @relation("SettingsUpdater", fields: [updatedBy], references: [id])
+// Sprint 2 - SMTP Configuration
+model SmtpConfig {
+  id         Int      @id @default(autoincrement())
+  host       String   @db.VarChar(255)
+  port       Int
+  username   String   @db.VarChar(255)
+  password   String   @db.VarChar(500)
+  encryption String   @default("TLS") @db.VarChar(10) // NONE, TLS, SSL
+  fromEmail  String   @map("from_email") @db.VarChar(255)
+  fromName   String   @map("from_name") @db.VarChar(255)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdBy  Int?     @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  
+  @@map("smtp_configs")
+}
 
-  @@map("system_settings")
+// Sprint 2 - Email Templates
+model EmailTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(100) // WELCOME_EMAIL, TRANSACTION_COMPLETED, etc.
+  displayName String   @map("display_name") @db.VarChar(255)
+  subject     String   @db.VarChar(500)
+  bodyHtml    String   @map("body_html") @db.Text
+  bodyText    String?  @map("body_text") @db.Text
+  variables   Json     // Array of allowed variable names
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  @@index([name], map: "idx_email_template_name")
+  @@index([isActive], map: "idx_email_template_active")
+  @@map("email_templates")
+}
+
+// Sprint 2 - Policies Management
+model Policy {
+  id          Int       @id @default(autoincrement())
+  type        String    @unique @db.VarChar(50) // TERMS, PRIVACY, REFUND
+  title       String    @db.VarChar(500)
+  content     String    @db.Text
+  version     String    @default("1.0") @db.VarChar(20)
+  isPublished Boolean   @default(false) @map("is_published")
+  publishedAt DateTime? @map("published_at")
+  createdBy   Int?      @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  @@index([type], map: "idx_policy_type")
+  @@index([isPublished], map: "idx_policy_published")
+  @@map("policies")
+}
+
+// Sprint 3 - KYC Review Notes
+model KycReviewNote {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  adminId   Int      @map("admin_id")
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation("KycReviewNotes", fields: [userId], references: [id])
+  
+  @@index([userId], map: "idx_kyc_note_user")
+  @@index([adminId], map: "idx_kyc_note_admin")
+  @@map("kyc_review_notes")
+}
+
+// Sprint 3 - KYC Action Log
+model KycActionLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  adminId   Int      @map("admin_id")
+  action    String   @db.VarChar(50) // APPROVE, REJECT, REQUEST_MORE, ESCALATE
+  reason    String?  @db.Text
+  oldStatus String?  @map("old_status") @db.VarChar(50)
+  newStatus String?  @map("new_status") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation("KycActionLogs", fields: [userId], references: [id])
+  
+  @@index([userId], map: "idx_kyc_action_user")
+  @@index([adminId], map: "idx_kyc_action_admin")
+  @@index([action], map: "idx_kyc_action_type")
+  @@map("kyc_action_logs")
+}
+
+// Sprint 3 - Fraud Detection Matches
+model FraudMatch {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  matchedUserId Int      @map("matched_user_id")
+  matchType     String   @db.VarChar(50) // DOCUMENT, EMAIL, PHONE, IP, DEVICE
+  matchValue    String?  @db.VarChar(500)
+  score         Int      // Risk score contribution
+  isResolved    Boolean  @default(false) @map("is_resolved")
+  resolvedBy    Int?     @map("resolved_by")
+  resolvedAt    DateTime? @map("resolved_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  user          User     @relation("FraudMatchesUser", fields: [userId], references: [id])
+  matchedUser   User     @relation("FraudMatchesMatched", fields: [matchedUserId], references: [id])
+  
+  @@index([userId], map: "idx_fraud_match_user")
+  @@index([matchedUserId], map: "idx_fraud_match_matched")
+  @@index([matchType], map: "idx_fraud_match_type")
+  @@index([isResolved], map: "idx_fraud_match_resolved")
+  @@map("fraud_matches")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+  SUPPORT
+  VIEWER
+}
+
+enum AgentStatus {
+  ACTIVE
+  SUSPENDED
+  OUT_OF_CASH
+  ON_HOLD
+}
+
+enum PayoutMethod {
+  BANK_TRANSFER
+  CASH_PICKUP
+  MOBILE_MONEY
+}
+
+enum TransactionStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  READY_FOR_PICKUP
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum KycStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
 }

@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/api';
 import { LogoUploader } from '@/components/admin/settings/LogoUploader';
 import { SystemSettings, TIMEZONES, DATE_FORMATS, TIME_FORMATS } from '@/types/settings';
 import { useAuth } from '@/hooks/useAuth';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 const DEFAULT_SETTINGS: SystemSettings = {
   platformName: 'نظام التحويلات المالية',
@@ -47,7 +48,10 @@ export default function GeneralSettingsPage() {
     setError('');
     try {
       const response = await apiClient.getSystemSettings();
-      setSettings({ ...DEFAULT_SETTINGS, ...response.data });
+      
+      const mergedSettings = { ...DEFAULT_SETTINGS, ...response.data };
+      
+      setSettings(mergedSettings);
     } catch (error: any) {
       setError(error.response?.data?.message || 'فشل تحميل الإعدادات');
     } finally {
@@ -97,7 +101,11 @@ export default function GeneralSettingsPage() {
 
     setSaving(true);
     try {
-      await apiClient.updateSystemSettings(settings);
+      const response = await apiClient.updateSystemSettings(settings as any);
+      
+      // Refetch settings to confirm persistence
+      await fetchSettings();
+      
       setSuccess('تم حفظ الإعدادات بنجاح');
       setTimeout(() => setSuccess(''), 3000);
     } catch (error: any) {
@@ -141,8 +149,9 @@ export default function GeneralSettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Breadcrumb */}
+    <AdminLayout>
+      <div className="space-y-6">
+        {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
         <button
           onClick={() => router.push('/admin/settings')}
@@ -357,7 +366,7 @@ export default function GeneralSettingsPage() {
             >
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  settings.maintenanceMode ? 'translate-x-1' : 'translate-x-6'
+                  settings.maintenanceMode ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>
@@ -395,6 +404,7 @@ export default function GeneralSettingsPage() {
           </button>
         </div>
       </form>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

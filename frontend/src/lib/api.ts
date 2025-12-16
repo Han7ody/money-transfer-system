@@ -16,9 +16,11 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
     // Don't override Content-Type for FormData (let browser set it with boundary)
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type'];
@@ -35,9 +37,12 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Don't redirect during registration flow
+      // Don't redirect during registration flow or if already on login page
       const isRegistrationRoute = window.location.pathname.startsWith('/register');
-      if (!isRegistrationRoute) {
+      const isLoginRoute = window.location.pathname.startsWith('/login');
+      const isPublicRoute = window.location.pathname.startsWith('/(public)');
+      
+      if (!isRegistrationRoute && !isLoginRoute && !isPublicRoute) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         window.location.href = '/login';
@@ -57,10 +62,7 @@ export const authAPI = {
     password: string;
   }) => {
     const response = await api.post('/auth/register', data);
-    if (response.data.success) {
-      localStorage.setItem('token', response.data.data.token);
-      localStorage.setItem('user', JSON.stringify(response.data.data.user));
-    }
+    // Don't set token immediately - wait for email verification
     return response.data;
   },
 
@@ -348,6 +350,43 @@ export const adminAPI = {
     return response.data;
   },
 
+  // Agent Management
+  getAvailableAgents: async (params: {
+    city: string;
+    amount?: number;
+  }) => {
+    const response = await api.get('/admin/agents/available', { params });
+    return response.data;
+  },
+
+  assignAgent: async (transactionId: number, agentId: number) => {
+    const response = await api.post(`/admin/transactions/${transactionId}/assign-agent`, { agentId });
+    return response.data;
+  },
+
+  confirmPickup: async (transactionId: number, pickupCode: string) => {
+    const response = await api.post(`/admin/transactions/${transactionId}/confirm-pickup`, { pickupCode });
+    return response.data;
+  },
+
+  // Transaction History
+  getTransactionHistory: async (transactionId: number) => {
+    const response = await api.get(`/admin/transactions/${transactionId}/history`);
+    return response.data;
+  },
+
+  // Audit Logs
+  getAuditLogs: async (params?: {
+    transactionId?: number;
+    userId?: number;
+    action?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const response = await api.get('/admin/audit-logs', { params });
+    return response.data;
+  },
+
   updateAdminProfile: async (data: {
     fullName?: string;
     email?: string;
@@ -356,18 +395,10 @@ export const adminAPI = {
     return response.data;
   },
 
-  // Audit Logs
-  getAuditLogs: async (params?: {
-    page?: number;
-    limit?: number;
-    action?: string;
-    entity?: string;
-    adminId?: number;
-    startDate?: string;
-    endDate?: string;
-    search?: string;
-  }) => {
-    const response = await api.get('/admin/system/audit-logs', { params });
+  updateProfilePicture: async (file: File) => {
+    const formData = new FormData();
+    formData.append('profilePicture', file);
+    const response = await api.post('/admin/profile/picture', formData);
     return response.data;
   },
 
@@ -470,6 +501,68 @@ export const adminAPI = {
 
   getCurrencies: async () => {
     const response = await api.get('/admin/currencies');
+    return response.data;
+  },
+
+  // Agent Management
+  getAllAgents: async (params?: {
+    search?: string;
+    status?: string;
+    city?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const response = await api.get('/admin/agents', { params });
+    return response.data;
+  },
+
+  getAgentById: async (id: number) => {
+    const response = await api.get(`/admin/agents/${id}`);
+    return response.data;
+  },
+
+  createAgent: async (data: {
+    fullName: string;
+    phone: string;
+    whatsapp?: string;
+    city: string;
+    country?: string;
+    maxDailyAmount: number;
+    notes?: string;
+  }) => {
+    const response = await api.post('/admin/agents', data);
+    return response.data;
+  },
+
+  updateAgent: async (id: number, data: {
+    fullName?: string;
+    phone?: string;
+    whatsapp?: string;
+    city?: string;
+    country?: string;
+    maxDailyAmount?: number;
+    notes?: string;
+  }) => {
+    const response = await api.put(`/admin/agents/${id}`, data);
+    return response.data;
+  },
+
+  updateAgentStatus: async (id: number, status: string) => {
+    const response = await api.put(`/admin/agents/${id}/status`, { status });
+    return response.data;
+  },
+
+  deleteAgent: async (id: number) => {
+    const response = await api.delete(`/admin/agents/${id}`);
+    return response.data;
+  },
+
+  getAgentTransactions: async (id: number, params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+  }) => {
+    const response = await api.get(`/admin/agents/${id}/transactions`, { params });
     return response.data;
   }
 };

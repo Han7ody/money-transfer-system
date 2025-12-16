@@ -3,12 +3,14 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Bell, Construction } from 'lucide-react';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 export default function NotificationSettingsPage() {
   const router = useRouter();
 
   return (
-    <div className="space-y-6">
+    <AdminLayout>
+      <div className="space-y-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
         <button
@@ -37,6 +39,7 @@ export default function NotificationSettingsPage() {
           العودة للإعدادات
         </button>
       </div>
-    </div>
+      </div>
+    </AdminLayout>
   );
 }

@@ -3,12 +3,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  LayoutDashboard, Users, DollarSign, Clock, CheckCircle2, AlertCircle,
-  LogOut, Menu, Bell, ChevronDown, Search, Eye, Receipt, Settings, HelpCircle,
-  MoreVertical, Check, X, Send, Edit3, ExternalLink, ChevronLeft, ChevronRight,
-  Calendar, Filter, Download, RefreshCw
+  Clock, CheckCircle2, AlertCircle,
+  Search, Eye, MoreVertical, Check, X, Send, Edit3, ExternalLink, ChevronLeft, ChevronRight,
+  Calendar, Filter, Download, RefreshCw, Receipt
 } from 'lucide-react';
-import { adminAPI, authAPI } from '@/lib/api';
+import { EmptyState, Pagination } from '@/components/ui';
+import { adminAPI } from '@/lib/api';
+import AdminLayout from '@/components/admin/AdminLayout';
 
 // Types
 interface Transaction {
@@ -54,8 +55,6 @@ const formatDate = (date: string) => {
 
 const TransactionsPage = () => {
   const router = useRouter();
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [showNotifications, setShowNotifications] = useState(false);
 
   // Data states
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -123,15 +122,16 @@ const TransactionsPage = () => {
   const handleAction = async (action: string, txId: string, data: Record<string, unknown> = {}) => {
     try {
       let response;
+      const transactionId = parseInt(txId, 10);
       switch (action) {
         case 'approve':
-          response = await adminAPI.approveTransaction(txId, data);
+          response = await adminAPI.approveTransaction(transactionId, data);
           break;
         case 'reject':
-          response = await adminAPI.rejectTransaction(txId, data);
+          response = await adminAPI.rejectTransaction(transactionId, data as any);
           break;
         case 'complete':
-          response = await adminAPI.completeTransaction(txId, data);
+          response = await adminAPI.completeTransaction(transactionId, data);
           break;
         default:
           return;
@@ -169,100 +169,13 @@ const TransactionsPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50" dir="rtl">
-      {/* Sidebar */}
-      <aside className={`fixed right-0 top-0 h-full bg-white border-l border-slate-200 transition-all z-40 ${showSidebar ? 'w-64' : 'w-0'} overflow-hidden`}>
-        <div className="p-5 h-full flex flex-col">
-          {/* Logo */}
-          <div className="flex items-center gap-3 mb-8 pb-6 border-b border-slate-100">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="font-bold text-slate-900">راصد</h2>
-              <p className="text-xs text-slate-500">لوحة التحكم</p>
-            </div>
-          </div>
-
-          {/* Navigation */}
-          <nav className="flex-1 space-y-1">
-            <button
-              onClick={() => router.push('/admin')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm"
-            >
-              <LayoutDashboard className="w-4 h-4" /> الرئيسية
-            </button>
-            <button
-              onClick={() => router.push('/admin/transactions')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 bg-indigo-50 text-indigo-700 rounded-lg font-medium text-sm"
-            >
-              <Receipt className="w-4 h-4" /> المعاملات
-            </button>
-            <button
-              onClick={() => router.push('/admin/users')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm"
-            >
-              <Users className="w-4 h-4" /> المستخدمين
-            </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <Settings className="w-4 h-4" /> الإعدادات
-            </button>
-          </nav>
-
-          {/* Bottom Actions */}
-          <div className="pt-4 border-t border-slate-100 space-y-1">
-            <button className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg text-sm">
-              <HelpCircle className="w-4 h-4" /> المساعدة
-            </button>
-            <button
-              onClick={() => { authAPI.logout(); router.push('/login'); }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 text-rose-600 hover:bg-rose-50 rounded-lg text-sm"
-            >
-              <LogOut className="w-4 h-4" /> تسجيل الخروج
-            </button>
-          </div>
+    <AdminLayout>
+      <div className="space-y-6">
+        {/* Page Header */}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">إدارة المعاملات</h1>
+          <p className="text-slate-600">عرض وإدارة جميع التحويلات</p>
         </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className={`${showSidebar ? 'mr-64' : 'mr-0'} transition-all min-h-screen`}>
-        {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setShowSidebar(!showSidebar)}
-                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
-              >
-                <Menu className="w-5 h-5 text-slate-600" />
-              </button>
-              <div>
-                <h1 className="text-lg font-semibold text-slate-900">إدارة المعاملات</h1>
-                <p className="text-sm text-slate-500">عرض وإدارة جميع التحويلات</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors relative"
-              >
-                <Bell className="w-5 h-5 text-slate-600" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>
-              </button>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 cursor-pointer">
-                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium text-indigo-600">م</span>
-                </div>
-                <span className="text-sm font-medium text-slate-700">المدير</span>
-                <ChevronDown className="w-4 h-4 text-slate-400" />
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Transactions Content */}
-        <div className="p-6 space-y-6">
           {/* Filters Section */}
           <div className="bg-white rounded-xl border border-slate-200 p-6">
             <div className="flex items-center gap-2 mb-4">
@@ -352,14 +265,23 @@ const TransactionsPage = () => {
 
             <div className="overflow-x-auto">
               {loading ? (
-                <div className="p-8 text-center text-slate-500">
-                  <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
-                  جاري التحميل...
+                <div className="p-12">
+                  <div className="animate-pulse space-y-4">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className="flex items-center gap-4">
+                        <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded w-32"></div>
+                        <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded flex-1"></div>
+                        <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded w-24"></div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : transactions.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">
-                  لا توجد معاملات
-                </div>
+                <EmptyState
+                  icon={Receipt}
+                  title="لا توجد معاملات"
+                  description="لم يتم العثور على أي معاملات تطابق معايير البحث"
+                />
               ) : (
                 <table className="w-full">
                   <thead>
@@ -394,7 +316,7 @@ const TransactionsPage = () => {
                             <span className="text-sm font-medium text-slate-900">{formatCurrency(tx.amountSent, 'SDG')}</span>
                           </td>
                           <td className="px-6 py-4">
-                            <span className="text-sm text-slate-700">{tx.amountReceived?.toLocaleString()} {tx.toCurrency?.code}</span>
+                            <span className="text-sm text-slate-700 en-digits">{tx.amountReceived?.toLocaleString('en-US')} {tx.toCurrency?.code}</span>
                           </td>
                           <td className="px-6 py-4">
                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.text}`}>
@@ -489,47 +411,18 @@ const TransactionsPage = () => {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="p-4 border-t border-slate-100 flex items-center justify-between">
-                <p className="text-sm text-slate-500">
-                  صفحة {page} من {totalPages}
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                  {[...Array(Math.min(5, totalPages))].map((_, i) => {
-                    const pageNum = i + 1;
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setPage(pageNum)}
-                        className={`w-8 h-8 rounded-lg text-sm font-medium ${
-                          page === pageNum
-                            ? 'bg-indigo-600 text-white'
-                            : 'text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                  <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                </div>
+              <div className="p-4 border-t border-slate-100 dark:border-slate-700">
+                <Pagination
+                  currentPage={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  totalItems={totalCount}
+                  itemsPerPage={15}
+                />
               </div>
             )}
           </div>
         </div>
-      </main>
 
       {/* Reject Modal */}
       {showRejectModal && (
@@ -566,7 +459,7 @@ const TransactionsPage = () => {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 };
 

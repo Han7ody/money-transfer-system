@@ -11,7 +11,7 @@ interface UserHeaderProps {
     email: string;
     phone: string;
     status: 'active' | 'blocked' | 'under_review';
-    kycStatus: 'verified' | 'pending' | 'rejected' | null;
+    kycStatus: 'verified' | 'pending' | 'rejected' | 'not_submitted' | null;
     tier: 'regular' | 'vip' | 'high_risk';
   };
 }

@@ -40,7 +40,7 @@ const typeConfig = {
 export const UserAuditLog: React.FC<UserAuditLogProps> = ({ auditLog }) => {
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleDateString('ar-SA', {
+    return date.toLocaleDateString('en-GB', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

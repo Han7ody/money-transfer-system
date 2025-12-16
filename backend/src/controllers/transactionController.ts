@@ -107,6 +107,12 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
       }
     });
 
+    // ✅ Run AML checks (non-blocking)
+    const { amlMonitoringService } = await import('../services/AMLMonitoringService');
+    amlMonitoringService.runChecks(req.user!.id, transaction.id).catch(err => {
+      console.error('[AML] Error running checks:', err);
+    });
+
     // Create notification
     await prisma.notification.create({
       data: {

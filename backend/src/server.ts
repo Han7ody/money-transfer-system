@@ -8,14 +8,28 @@ import dotenv from 'dotenv';
 import prisma from './lib/prisma';
 import { verifyToken, authorize } from './middleware/auth';
 import { maintenanceMode } from './middleware/maintenance';
-import { uploadReceipt, uploadKycDocuments, handleUploadError } from './middleware/upload';
+import { uploadReceipt, uploadKycDocuments, handleUploadError, uploadProfilePicture } from './middleware/upload';
 import * as transactionController from './controllers/transactionController';
 import * as adminController from './controllers/adminController';
 import * as userController from './controllers/userController';
 import authRoutes from './routes/authRoutes';
 import settingsRoutes from './routes/settingsRoutes';
+import agentRoutes from './routes/agentRoutes';
+import rateLimitRoutes from './routes/rateLimitRoutes';
+import kycRoutes from './routes/kycRoutes';
+import securityRoutes from './routes/securityRoutes';
+import supportRoutes from './routes/supportRoutes';
+import complianceRoutes from './routes/complianceRoutes';
+import adminManagementRoutes from './routes/adminManagementRoutes';
+import roleManagementRoutes from './routes/roleManagementRoutes';
+import adminUserRoutes from './routes/adminUserRoutes';
+import roleRoutes from './routes/roleRoutes';
+import agentManagementRoutes from './routes/agentManagementRoutes';
 import path from 'path';
 import emailService from './services/emailService';
+import { notificationHandler } from './events/handlers/notificationHandler';
+import { sessionActivityMiddleware } from './middleware/sessionActivity';
+import { ipWhitelistMiddleware } from './middleware/ipWhitelist';
 
 dotenv.config();
 
@@ -55,6 +69,12 @@ const VIEW_ROLES_SHARED = ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'VIEWER'];
 // ==================== AUTH ROUTES ====================
 apiRouter.use('/auth', authRoutes);
 
+// ==================== SPRINT 5: ADMIN LOGIN (PUBLIC) ====================
+// Admin login must be before verifyToken middleware
+apiRouter.post('/admin-management/admins/login', (req, res) => {
+  return require('./controllers/AdminUserController').default.login(req, res);
+});
+
 // ==================== PUBLIC ENDPOINTS (NO AUTH REQUIRED) ====================
 // These must come before verifyToken middleware
 apiRouter.get('/public/system-status', async (req, res) => {
@@ -79,13 +99,12 @@ apiRouter.get('/public/system-status', async (req, res) => {
         });
       } catch (error) {
         // Record might have been created by another request, that's fine
-        console.log('Could not create maintenance_mode setting:', error);
+        // Could not create maintenance_mode setting
       }
       isMaintenanceMode = false;
     }
 
-    console.log('[System Status] maintenance_mode record:', maintenanceSetting);
-    console.log('[System Status] isMaintenanceMode:', isMaintenanceMode);
+
 
     res.json({
       success: true,
@@ -94,7 +113,6 @@ apiRouter.get('/public/system-status', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get system status error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch system status'
@@ -120,7 +138,6 @@ apiRouter.get('/debug/maintenance-value', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Debug error:', error);
     res.status(500).json({
       success: false,
       error: (error as any).message
@@ -128,10 +145,26 @@ apiRouter.get('/debug/maintenance-value', async (req, res) => {
   }
 });
 
+
+
 // ==================== MAINTENANCE MODE MIDDLEWARE ====================
 // Apply after auth routes and public endpoints, before protected routes
 apiRouter.use(verifyToken);
 apiRouter.use(maintenanceMode);
+
+// ==================== SECURITY MIDDLEWARE ====================
+// Apply session activity tracking and IP whitelist for admin routes
+apiRouter.use('/admin', sessionActivityMiddleware);
+apiRouter.use('/admin', ipWhitelistMiddleware);
+
+// ==================== SECURITY ROUTES ====================
+apiRouter.use('/security', securityRoutes);
+
+// ==================== SUPPORT ROUTES ====================
+apiRouter.use('/support', supportRoutes);
+
+// ==================== COMPLIANCE ROUTES ====================
+apiRouter.use('/compliance', complianceRoutes);
 
 // ==================== USER ROUTES ====================
 
@@ -152,24 +185,39 @@ apiRouter.post('/kyc/upload', uploadKycDocuments, handleUploadError, async (req:
       });
     }
 
+    // Delete existing KYC documents for this user
     await prisma.kycDocument.deleteMany({ where: { userId } });
 
+    // Create new KYC documents with proper schema fields
     const documents = await Promise.all([
-      prisma.kycDocument.create({ data: { userId, type: 'id_front', filePath: files.idFront[0].filename } }),
-      prisma.kycDocument.create({ data: { userId, type: 'id_back', filePath: files.idBack[0].filename } }),
-      prisma.kycDocument.create({ data: { userId, type: 'selfie', filePath: files.selfie[0].filename } })
+      (prisma.kycDocument as any).create({ 
+        data: { 
+          userId, 
+          documentType: 'NATIONAL_ID',
+          frontImageUrl: `/uploads/kyc/${files.idFront[0].filename}`,
+          backImageUrl: `/uploads/kyc/${files.idBack[0].filename}`
+        } 
+      }),
+      (prisma.kycDocument as any).create({ 
+        data: { 
+          userId, 
+          documentType: 'SELFIE',
+          frontImageUrl: `/uploads/kyc/${files.selfie[0].filename}`
+        } 
+      })
     ]);
 
+    // Update user KYC status
     const user = await prisma.user.update({
       where: { id: userId },
       data: { kycStatus: 'PENDING', kycSubmittedAt: new Date() }
     });
 
+    // Send confirmation email
     await emailService.sendKycReceivedEmail(user.email, user.fullName);
 
     res.json({ success: true, message: 'KYC documents uploaded successfully', data: { documents } });
   } catch (error: any) {
-    console.error('KYC upload error:', error);
     res.status(500).json({ success: false, message: error.message || 'Failed to upload KYC documents' });
   }
 });
@@ -203,6 +251,9 @@ apiRouter.get('/transactions/:id', (req: any, res: any) => {
 apiRouter.post('/admin/transactions/:id/approve', authorize(ADMIN_ROLES), adminController.approveTransaction);
 apiRouter.post('/admin/transactions/:id/reject', authorize(ADMIN_ROLES), adminController.rejectTransaction);
 apiRouter.post('/admin/transactions/:id/complete', authorize(ADMIN_ROLES), adminController.completeTransaction);
+apiRouter.post('/admin/transactions/:id/assign-agent', authorize(ADMIN_ROLES), adminController.assignAgentToTransaction);
+apiRouter.post('/admin/transactions/:id/confirm-pickup', authorize(ADMIN_ROLES), adminController.confirmCashPickup);
+apiRouter.get('/admin/transactions/:id/history', authorize(ADMIN_ROLES), adminController.getTransactionHistory);
 
 apiRouter.get('/admin/dashboard/stats', authorize(ADMIN_ROLES), adminController.getDashboardStats);
 
@@ -212,23 +263,52 @@ apiRouter.post('/admin/exchange-rates', authorize(ADMIN_ROLES), adminController.
 apiRouter.get('/admin/currencies', authorize(ADMIN_ROLES), adminController.getAllCurrencies);
 
 apiRouter.get('/admin/users', authorize(ADMIN_ROLES), adminController.getAllUsers);
+apiRouter.get('/admin/users/recent', authorize(ADMIN_ROLES), adminController.getRecentUsers);
 apiRouter.get('/admin/users/:id', authorize(ADMIN_ROLES), adminController.getUserById);
 apiRouter.get('/admin/users/:id/transactions', authorize(ADMIN_ROLES), adminController.getUserTransactions);
 apiRouter.put('/admin/users/:id/status', authorize(ADMIN_ROLES), adminController.toggleUserStatus);
 
-apiRouter.post('/admin/kyc/:docId/approve', authorize(ADMIN_ROLES), adminController.approveKycDocument);
-apiRouter.post('/admin/kyc/:docId/reject', authorize(ADMIN_ROLES), adminController.rejectKycDocument);
+// Old KYC endpoints removed - now using /admin/kyc routes from kycRoutes.ts
+// apiRouter.post('/admin/kyc/:docId/approve', authorize(ADMIN_ROLES), adminController.approveKycDocument);
+// apiRouter.post('/admin/kyc/:docId/reject', authorize(ADMIN_ROLES), adminController.rejectKycDocument);
 
 apiRouter.get('/admin/profile', authorize(ADMIN_ROLES), adminController.getAdminProfile);
 apiRouter.put('/admin/profile', authorize(ADMIN_ROLES), adminController.updateAdminProfile);
+apiRouter.post('/admin/profile/picture', authorize(ADMIN_ROLES), uploadProfilePicture, handleUploadError, adminController.updateProfilePicture);
 
 // Audit Logs & System - SUPER_ADMIN only
 apiRouter.get('/admin/system/audit-logs', authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogs);
+apiRouter.get('/admin/audit-logs', authorize(ADMIN_ROLES), adminController.getAuditLogs);
 apiRouter.get('/admin/system/audit-logs/stats', authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogStats);
 apiRouter.get('/admin/system/audit-logs/:id', authorize(SUPER_ADMIN_ROLE), adminController.getAuditLogById);
 
 // System Settings - SUPER_ADMIN only
 apiRouter.use('/admin/system', settingsRoutes);
+
+// Agent Management - ADMIN only
+apiRouter.use('/admin', agentRoutes);
+
+// Rate Limit Management - SUPER_ADMIN only
+apiRouter.use('/admin/security/rate-limits', rateLimitRoutes);
+
+// KYC Management - ADMIN only
+apiRouter.use('/admin/kyc', kycRoutes);
+
+// Admin Management - SUPER_ADMIN only (Legacy)
+apiRouter.use('/admin/admins', adminManagementRoutes);
+
+// Role Management - SUPER_ADMIN only (Legacy)
+apiRouter.use('/admin/roles', roleManagementRoutes);
+
+// ==================== SPRINT 5: NEW ADMIN SYSTEM ====================
+// Admin User Management (Separate admin accounts)
+apiRouter.use('/admin-management/admins', adminUserRoutes);
+
+// Role & Permission Management
+apiRouter.use('/admin-management/roles', roleRoutes);
+
+// Agent Management (Enhanced)
+apiRouter.use('/agents', agentManagementRoutes);
 
 // ==================== NOTIFICATIONS ====================
 
@@ -276,12 +356,14 @@ app.use((req, res) => {
 
 // Error Handler
 app.use((err: any, req: any, res: any, next: any) => {
-  console.error('Server error:', err);
   res.status(500).json({
     success: false,
     message: 'Internal server error'
   });
 });
+
+// Initialize event handlers
+notificationHandler.initialize();
 
 // Start Server
 app.listen(PORT, () => {
